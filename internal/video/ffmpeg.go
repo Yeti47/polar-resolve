@@ -44,15 +44,22 @@ type ProcessConfig struct {
 // Probe retrieves video metadata using ffprobe.
 func Probe(path string) (*VideoInfo, error) {
 	cmd := exec.Command("ffprobe",
-		"-v", "quiet",
+		"-v", "error",
 		"-print_format", "json",
 		"-show_streams",
 		"-show_format",
 		path,
 	)
 
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+
 	output, err := cmd.Output()
 	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return nil, fmt.Errorf("ffprobe failed: %w\n%s", err, msg)
+		}
 		return nil, fmt.Errorf("ffprobe failed: %w", err)
 	}
 

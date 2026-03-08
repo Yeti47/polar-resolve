@@ -30,10 +30,15 @@ type Config struct {
 }
 
 // Upscaler manages the ONNX runtime session for image upscaling.
+// A single ONNX session is created once and reused for all tiles and frames,
+// avoiding the expensive MIGraphX graph compilation on every inference call.
 type Upscaler struct {
-	config     Config
-	tileConfig TileConfig
-	envReady   bool
+	config       Config
+	tileConfig   TileConfig
+	envReady     bool
+	session      *ort.AdvancedSession
+	inputTensor  *ort.Tensor[float32]
+	outputTensor *ort.Tensor[float32]
 }
 
 // New creates a new Upscaler with the given configuration.
@@ -80,16 +85,91 @@ func New(cfg Config) (*Upscaler, error) {
 		fmt.Printf("[polar-resolve] ONNX Runtime version: %s\n", ort.GetVersion())
 	}
 
+	// Create a persistent session — MIGraphX compiles the model graph here once,
+	// rather than repeating this expensive step for every tile.
+	if err := u.initSession(); err != nil {
+		ort.DestroyEnvironment()
+		return nil, fmt.Errorf("failed to initialize ONNX session: %w", err)
+	}
+
 	return u, nil
 }
 
 // Close releases ONNX Runtime resources.
 func (u *Upscaler) Close() {
+	if u.session != nil {
+		u.session.Destroy()
+	}
+	if u.inputTensor != nil {
+		u.inputTensor.Destroy()
+	}
+	if u.outputTensor != nil {
+		u.outputTensor.Destroy()
+	}
 	if u.envReady {
 		if err := ort.DestroyEnvironment(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to destroy ONNX Runtime environment: %v\n", err)
 		}
 	}
+}
+
+// initSession creates the ONNX session with pre-allocated fixed-size tensors.
+func (u *Upscaler) initSession() error {
+	var h, w int64 = ModelInputSize, ModelInputSize
+	outH := h * ScaleFactor
+	outW := w * ScaleFactor
+
+	inputShape := ort.NewShape(1, 3, h, w)
+	inputData := make([]float32, 1*3*h*w)
+	var err error
+	u.inputTensor, err = ort.NewTensor(inputShape, inputData)
+	if err != nil {
+		return fmt.Errorf("create input tensor: %w", err)
+	}
+
+	outputShape := ort.NewShape(1, 3, outH, outW)
+	outputData := make([]float32, 1*3*outH*outW)
+	u.outputTensor, err = ort.NewTensor(outputShape, outputData)
+	if err != nil {
+		u.inputTensor.Destroy()
+		return fmt.Errorf("create output tensor: %w", err)
+	}
+
+	options, err := ort.NewSessionOptions()
+	if err != nil {
+		u.inputTensor.Destroy()
+		u.outputTensor.Destroy()
+		return fmt.Errorf("create session options: %w", err)
+	}
+	defer options.Destroy()
+
+	if err := u.configureProvider(options); err != nil {
+		u.inputTensor.Destroy()
+		u.outputTensor.Destroy()
+		return fmt.Errorf("configure execution provider: %w", err)
+	}
+
+	if err := options.SetIntraOpNumThreads(runtime.NumCPU()); err != nil {
+		u.inputTensor.Destroy()
+		u.outputTensor.Destroy()
+		return fmt.Errorf("set thread count: %w", err)
+	}
+
+	u.session, err = ort.NewAdvancedSession(
+		u.config.ModelPath,
+		[]string{"image"},
+		[]string{"upscaled_image"},
+		[]ort.ArbitraryTensor{u.inputTensor},
+		[]ort.ArbitraryTensor{u.outputTensor},
+		options,
+	)
+	if err != nil {
+		u.inputTensor.Destroy()
+		u.outputTensor.Destroy()
+		return fmt.Errorf("create session: %w", err)
+	}
+
+	return nil
 }
 
 // UpscaleImage upscales a single image using tiling.
@@ -173,6 +253,7 @@ func cropOutput(img *image.RGBImage, w, h int) *image.RGBImage {
 
 // runInference runs the ONNX model on a single tile image.
 // Tiles smaller than ModelInputSize are padded; the output is cropped back.
+// Reuses the pre-created session and tensors for efficiency.
 func (u *Upscaler) runInference(tile *image.RGBImage) (*image.RGBImage, error) {
 	origW := tile.Width
 	origH := tile.Height
@@ -180,62 +261,17 @@ func (u *Upscaler) runInference(tile *image.RGBImage) (*image.RGBImage, error) {
 	// Pad tile to model's fixed input size if necessary
 	padded := padToModelSize(tile)
 
-	var h, w int64 = int64(padded.Height), int64(padded.Width)
-	outH := h * ScaleFactor
-	outW := w * ScaleFactor
+	// Copy tile data into the pre-allocated input tensor buffer
+	nchw := padded.ToNCHW()
+	copy(u.inputTensor.GetData(), nchw)
 
-	// Prepare input tensor (NCHW layout)
-	inputData := padded.ToNCHW()
-	inputShape := ort.NewShape(1, 3, h, w)
-	inputTensor, err := ort.NewTensor(inputShape, inputData)
-	if err != nil {
-		return nil, fmt.Errorf("create input tensor: %w", err)
-	}
-	defer inputTensor.Destroy()
-
-	// Prepare output tensor
-	outputShape := ort.NewShape(1, 3, outH, outW)
-	outputData := make([]float32, 1*3*outH*outW)
-	outputTensor, err := ort.NewTensor(outputShape, outputData)
-	if err != nil {
-		return nil, fmt.Errorf("create output tensor: %w", err)
-	}
-	defer outputTensor.Destroy()
-
-	// Create session options and configure execution provider
-	options, err := ort.NewSessionOptions()
-	if err != nil {
-		return nil, fmt.Errorf("create session options: %w", err)
-	}
-	defer options.Destroy()
-
-	if err := u.configureProvider(options); err != nil {
-		return nil, fmt.Errorf("configure execution provider: %w", err)
-	}
-
-	if err := options.SetIntraOpNumThreads(runtime.NumCPU()); err != nil {
-		return nil, fmt.Errorf("set thread count: %w", err)
-	}
-
-	// Create and run session
-	session, err := ort.NewAdvancedSession(
-		u.config.ModelPath,
-		[]string{"image"},
-		[]string{"upscaled_image"},
-		[]ort.ArbitraryTensor{inputTensor},
-		[]ort.ArbitraryTensor{outputTensor},
-		options,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create session: %w", err)
-	}
-	defer session.Destroy()
-
-	if err := session.Run(); err != nil {
+	if err := u.session.Run(); err != nil {
 		return nil, fmt.Errorf("run inference: %w", err)
 	}
 
-	result := image.FromNCHW(outputTensor.GetData(), int(outW), int(outH))
+	outW := ModelInputSize * ScaleFactor
+	outH := ModelInputSize * ScaleFactor
+	result := image.FromNCHW(u.outputTensor.GetData(), outW, outH)
 
 	// Crop output back to original tile's upscaled dimensions
 	result = cropOutput(result, origW*ScaleFactor, origH*ScaleFactor)
@@ -248,19 +284,19 @@ func (u *Upscaler) configureProvider(options *ort.SessionOptions) error {
 	device := u.config.Device
 
 	if device == "rocm" || device == "auto" {
-		err := options.AppendExecutionProvider("ROCMExecutionProvider", map[string]string{
+		err := options.AppendExecutionProvider("MIGraphXExecutionProvider", map[string]string{
 			"device_id": "0",
 		})
 		if err != nil {
 			if device == "rocm" {
-				return fmt.Errorf("ROCm execution provider not available: %w", err)
+				return fmt.Errorf("MIGraphX execution provider not available: %w", err)
 			}
 			if u.config.Verbose {
-				fmt.Printf("[polar-resolve] ROCm not available, falling back to CPU: %v\n", err)
+				fmt.Printf("[polar-resolve] MIGraphX not available, falling back to CPU: %v\n", err)
 			}
 		} else {
 			if u.config.Verbose {
-				fmt.Println("[polar-resolve] Using ROCMExecutionProvider")
+				fmt.Println("[polar-resolve] Using MIGraphXExecutionProvider")
 			}
 			return nil
 		}

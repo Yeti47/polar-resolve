@@ -20,8 +20,8 @@ services:
       # Model cache — persists across runs
       - polar-resolve-models:/models
       # Mount host directories for input/output
-      - ${HOME}/.polar-resolve/input:/workspace/input
-      - ${HOME}/.polar-resolve/output:/workspace/output
+      - ${HOME}/polar-resolve/input:/workspace/input
+      - ${HOME}/polar-resolve/output:/workspace/output
     # Examples:
     #   docker compose run polar-resolve image --input /workspace/input/photo.png --output /workspace/output/photo_4x.png
     #   docker compose run polar-resolve video  --input /workspace/input/clip.mp4  --output /workspace/output/clip_4x.mp4

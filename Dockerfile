@@ -20,7 +20,7 @@ FROM rocm/dev-ubuntu-22.04:7.1.1 AS builder
 # Install Go
 ARG GO_VERSION=1.25.5
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        wget ca-certificates git unzip python3 && \
+        wget ca-certificates git unzip python3 patchelf && \
     wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -O /tmp/go.tar.gz && \
     tar -C /usr/local -xzf /tmp/go.tar.gz && \
     rm /tmp/go.tar.gz && \
@@ -35,8 +35,8 @@ ARG ORT_WHEEL_URL="https://repo.radeon.com/rocm/manylinux/rocm-rel-7.1.1/onnxrun
 RUN mkdir -p /opt/onnxruntime/lib && \
     cd /tmp && \
     wget -q "${ORT_WHEEL_URL}" -O ort_migraphx.whl && \
-    unzip -o ort_migraphx.whl "onnxruntime/capi/libonnxruntime*" -d extracted && \
-    cp extracted/onnxruntime/capi/libonnxruntime*.so* /opt/onnxruntime/lib/ && \
+    unzip -o ort_migraphx.whl "onnxruntime/capi/*.so*" -d extracted && \
+    cp extracted/onnxruntime/capi/*.so* /opt/onnxruntime/lib/ && \
     cd /opt/onnxruntime/lib && \
     # Create the unversioned symlink if it doesn't exist
     if [ ! -f libonnxruntime.so ]; then \
@@ -44,6 +44,17 @@ RUN mkdir -p /opt/onnxruntime/lib && \
             [ -f "$f" ] && ln -sf "$f" libonnxruntime.so && break; \
         done; \
     fi && \
+    # De-mangle auditwheel-patched NEEDED entries (e.g. libamdhip64-9c0f4954.so.7.1.70101 -> libamdhip64.so)
+    # so the dynamic linker finds the real ROCm libraries at runtime
+    for lib in /opt/onnxruntime/lib/libonnxruntime_providers_*.so; do \
+        for needed in $(patchelf --print-needed "$lib" 2>/dev/null); do \
+            demangled=$(echo "$needed" | sed -E 's/-[0-9a-f]{8}\.so[.0-9]*/.so/'); \
+            if [ "$demangled" != "$needed" ]; then \
+                echo "Fixing $lib: $needed -> $demangled"; \
+                patchelf --replace-needed "$needed" "$demangled" "$lib"; \
+            fi; \
+        done; \
+    done && \
     ls -la /opt/onnxruntime/lib/ && \
     rm -rf /tmp/ort_migraphx.whl /tmp/extracted
 
@@ -60,10 +71,11 @@ RUN CGO_ENABLED=1 go build -o /polar-resolve ./cmd/polar-resolve/
 # ---------------------------------------------------------------------------
 FROM rocm/dev-ubuntu-22.04:7.1.1
 
-# Install ffmpeg and minimal runtime dependencies
+# Install ffmpeg, MIGraphX runtime, and minimal runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
-        ca-certificates && \
+        ca-certificates \
+        migraphx && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy ORT libraries
