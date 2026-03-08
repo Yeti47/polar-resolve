@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -71,4 +72,27 @@ func Logf(format string, args ...interface{}) {
 	if IsVerbose() {
 		fmt.Printf("[polar-resolve] "+format+"\n", args...)
 	}
+}
+
+const (
+	WorkspaceInput  = "/workspace/input"
+	WorkspaceOutput = "/workspace/output"
+)
+
+// ResolveInputPath makes a relative path absolute under WorkspaceInput.
+// Absolute paths are returned unchanged.
+func ResolveInputPath(path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(WorkspaceInput, path)
+}
+
+// ResolveOutputPath makes a relative path absolute under WorkspaceOutput.
+// Absolute paths and empty strings are returned unchanged.
+func ResolveOutputPath(path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(WorkspaceOutput, path)
 }

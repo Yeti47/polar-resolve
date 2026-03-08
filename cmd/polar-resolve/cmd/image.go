@@ -40,6 +40,10 @@ func init() {
 }
 
 func runImage(cmd *cobra.Command, args []string) error {
+	// Resolve relative paths to workspace directories
+	imgInput = ResolveInputPath(imgInput)
+	imgOutput = ResolveOutputPath(imgOutput)
+
 	// Resolve input files via glob
 	matches, err := filepath.Glob(imgInput)
 	if err != nil {

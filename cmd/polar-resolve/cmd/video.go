@@ -39,6 +39,10 @@ func init() {
 }
 
 func runVideo(cmd *cobra.Command, args []string) error {
+	// Resolve relative paths to workspace directories
+	vidInput = ResolveInputPath(vidInput)
+	vidOutput = ResolveOutputPath(vidOutput)
+
 	// Resolve model
 	modelPath := GetModelPath()
 	var err error
