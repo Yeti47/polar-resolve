@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Yeti47/polar-resolve/internal/logging"
 )
 
 const (
@@ -26,6 +28,23 @@ const (
 	// ModelZipSHA256 is the expected SHA256 hash of the downloaded zip archive.
 	ModelZipSHA256 = "391da19c39c9ffec2ae094a3dacf25f893e337fccd4925db8771922e961287a7"
 )
+
+// DownloadPhase represents a stage in the model preparation process.
+type DownloadPhase string
+
+const (
+	PhaseDownloading DownloadPhase = "downloading"
+	PhaseVerifying   DownloadPhase = "verifying"
+	PhaseExtracting  DownloadPhase = "extracting"
+	PhaseReady       DownloadPhase = "ready"
+)
+
+// DownloadObserver receives model preparation progress updates.
+type DownloadObserver interface {
+	// OnDownloadProgress is called when the download phase or byte counts change.
+	// current and total are byte counts during PhaseDownloading; for other phases they are 0.
+	OnDownloadProgress(phase DownloadPhase, current, total int64)
+}
 
 // CacheDir returns the model cache directory (~/.cache/polar-resolve/models/).
 // Inside a container, POLAR_RESOLVE_MODEL_DIR overrides the location.
@@ -63,7 +82,17 @@ func DefaultModelPath() (string, error) {
 // The model archive contains both the .onnx graph and an external .data file
 // with the weights. Both must be in the same directory for ONNX Runtime to
 // load the model.
-func EnsureModel() (string, error) {
+func EnsureModel(log logging.Logger) (string, error) {
+	return EnsureModelWithProgress(log, nil)
+}
+
+// EnsureModelWithProgress is like EnsureModel but reports download progress
+// through the optional observer.
+func EnsureModelWithProgress(log logging.Logger, observer DownloadObserver) (string, error) {
+	if log == nil {
+		log = logging.Nop()
+	}
+
 	modelPath, err := DefaultModelPath()
 	if err != nil {
 		return "", err
@@ -81,13 +110,16 @@ func EnsureModel() (string, error) {
 
 	// Download the zip archive
 	zipPath := filepath.Join(cacheDir, "real_esrgan_general_x4v3-onnx-float.zip")
-	fmt.Printf("Downloading model to %s...\n", zipPath)
-	if err := downloadFile(zipPath, DefaultModelURL); err != nil {
+	log.Infof("Downloading model to %s...", zipPath)
+	if err := downloadFile(log, zipPath, DefaultModelURL, observer); err != nil {
 		return "", fmt.Errorf("failed to download model: %w", err)
 	}
 
 	// Verify the zip checksum
 	if ModelZipSHA256 != "" {
+		if observer != nil {
+			observer.OnDownloadProgress(PhaseVerifying, 0, 0)
+		}
 		ok, err := verifyChecksum(zipPath, ModelZipSHA256)
 		if err != nil {
 			_ = os.Remove(zipPath)
@@ -101,7 +133,10 @@ func EnsureModel() (string, error) {
 
 	// Extract the archive
 	destDir := filepath.Join(cacheDir, DefaultModelDir)
-	fmt.Printf("Extracting model to %s...\n", destDir)
+	log.Infof("Extracting model to %s...", destDir)
+	if observer != nil {
+		observer.OnDownloadProgress(PhaseExtracting, 0, 0)
+	}
 	if err := extractZip(zipPath, destDir); err != nil {
 		_ = os.RemoveAll(destDir)
 		return "", fmt.Errorf("failed to extract model archive: %w", err)
@@ -113,6 +148,10 @@ func EnsureModel() (string, error) {
 	// Verify the extracted ONNX file exists
 	if _, err := os.Stat(modelPath); err != nil {
 		return "", fmt.Errorf("model file not found after extraction: %s", modelPath)
+	}
+
+	if observer != nil {
+		observer.OnDownloadProgress(PhaseReady, 0, 0)
 	}
 
 	return modelPath, nil
@@ -198,7 +237,7 @@ func extractZipFile(f *zip.File, destPath string) error {
 }
 
 // downloadFile downloads a file from url and saves it to dest.
-func downloadFile(dest, url string) error {
+func downloadFile(log logging.Logger, dest, url string, observer DownloadObserver) error {
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -219,7 +258,16 @@ func downloadFile(dest, url string) error {
 		return err
 	}
 
-	written, err := io.Copy(f, resp.Body)
+	total := resp.ContentLength // -1 if unknown
+	var written int64
+	var w io.Writer = f
+
+	if observer != nil {
+		observer.OnDownloadProgress(PhaseDownloading, 0, total)
+		w = &progressWriter{w: f, total: total, observer: observer}
+	}
+
+	written, err = io.Copy(w, resp.Body)
 	if closeErr := f.Close(); closeErr != nil && err == nil {
 		err = closeErr
 	}
@@ -228,8 +276,23 @@ func downloadFile(dest, url string) error {
 		return err
 	}
 
-	fmt.Printf("Downloaded %d bytes\n", written)
+	log.Infof("Downloaded %d bytes", written)
 	return os.Rename(tmpPath, dest)
+}
+
+// progressWriter wraps an io.Writer and reports download progress.
+type progressWriter struct {
+	w        io.Writer
+	written  int64
+	total    int64
+	observer DownloadObserver
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n, err := pw.w.Write(p)
+	pw.written += int64(n)
+	pw.observer.OnDownloadProgress(PhaseDownloading, pw.written, pw.total)
+	return n, err
 }
 
 // verifyChecksum checks the SHA256 hash of a file.

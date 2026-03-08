@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/Yeti47/polar-resolve/internal/logging"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -72,6 +73,11 @@ func Logf(format string, args ...interface{}) {
 	if IsVerbose() {
 		fmt.Printf("[polar-resolve] "+format+"\n", args...)
 	}
+}
+
+// NewLogger returns a logging.Logger appropriate for the current verbose setting.
+func NewLogger() logging.Logger {
+	return logging.Console(IsVerbose())
 }
 
 const (

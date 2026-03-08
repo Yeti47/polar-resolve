@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>polar-resolve</title>
+<style>
+:root {
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --text: #1e293b;
+  --text-sec: #64748b;
+  --border: #e2e8f0;
+  --success: #16a34a;
+  --error: #dc2626;
+  --radius: 12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.header{background:linear-gradient(135deg,#0f2746 0%,#1e56a0 100%);color:#fff;padding:1.5rem 1rem;text-align:center}
+.header h1{font-size:1.5rem;font-weight:700;letter-spacing:-.02em}
+.header p{opacity:.8;font-size:.87rem;margin-top:.25rem}
+.container{max-width:580px;margin:1.5rem auto;padding:0 1rem}
+.card{background:var(--surface);border-radius:var(--radius);box-shadow:0 1px 3px rgba(0,0,0,.08);padding:1.25rem;margin-bottom:1.25rem}
+
+/* Upload zone */
+.upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:2.5rem 1.5rem;text-align:center;cursor:pointer;transition:border-color .2s,background .2s}
+.upload-zone:hover,.upload-zone.dragover{border-color:var(--primary);background:#eff6ff}
+.upload-zone .icon{font-size:2.5rem;margin-bottom:.75rem}
+.upload-zone p{color:var(--text-sec);font-size:.9rem}
+.upload-zone .browse{color:var(--primary);text-decoration:underline;cursor:pointer}
+.upload-zone .hint{font-size:.78rem;margin-top:.5rem;opacity:.7}
+.file-info{display:none;align-items:center;gap:.75rem;padding:.65rem 1rem;background:#f8fafc;border:1px solid var(--border);border-radius:8px;margin-top:1rem}
+.file-info.visible{display:flex}
+.file-info .name{flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.9rem}
+.file-info .size{color:var(--text-sec);font-size:.8rem;white-space:nowrap}
+.file-info .remove{cursor:pointer;color:var(--error);background:none;border:none;font-size:1.3rem;line-height:1;padding:0 .15rem}
+
+/* Options */
+.opt-header{display:flex;align-items:center;justify-content:space-between;cursor:pointer;-webkit-user-select:none;user-select:none}
+.opt-header h3{font-size:.92rem;font-weight:600}
+.opt-header .arrow{font-size:.75rem;transition:transform .2s;color:var(--text-sec)}
+.opt-header .arrow.open{transform:rotate(180deg)}
+.opt-body{margin-top:1rem}
+.opt-body.hidden{display:none}
+.form-group{margin-bottom:.85rem}
+.form-group label{display:block;font-size:.82rem;color:var(--text-sec);margin-bottom:.2rem;font-weight:500}
+.form-group input,.form-group select{width:100%;padding:.45rem .65rem;border:1px solid var(--border);border-radius:8px;font-size:.88rem;background:var(--surface);color:var(--text)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:.85rem}
+.check-group{display:flex;align-items:center;gap:.5rem}
+.check-group input[type=checkbox]{width:auto;accent-color:var(--primary)}
+.check-group label{margin-bottom:0;font-size:.88rem;color:var(--text)}
+
+/* Button */
+.btn{display:inline-flex;align-items:center;justify-content:center;width:100%;padding:.7rem 1.25rem;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;transition:background .15s;text-decoration:none}
+.btn:hover{background:var(--primary-hover)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.success{background:var(--success)}
+.btn.muted{background:#64748b;margin-top:.65rem}
+
+/* Progress */
+.progress-section{display:none}
+.progress-section.active{display:block}
+.progress-section h3{font-size:.95rem;font-weight:600}
+.bar-wrap{background:#e2e8f0;border-radius:999px;height:8px;overflow:hidden;margin:.85rem 0}
+.bar-fill{height:100%;background:linear-gradient(90deg,#2563eb,#38bdf8);border-radius:999px;transition:width .3s;width:0%}
+.progress-info{display:flex;justify-content:space-between;font-size:.82rem;color:var(--text-sec)}
+
+/* Result */
+.result-section{display:none;text-align:center}
+.result-section.active{display:block}
+.result-section .checkmark{font-size:2.8rem;color:var(--success)}
+.result-section .msg{margin:.4rem 0 1rem;font-size:.92rem}
+
+/* Error */
+.error-section{display:none}
+.error-section.active{display:block}
+.error-msg{background:#fef2f2;color:var(--error);padding:.85rem 1rem;border-radius:8px;font-size:.88rem;word-break:break-word}
+
+@media(max-width:480px){
+  .form-row{grid-template-columns:1fr}
+  .container{padding:0 .65rem}
+  .card{padding:1rem}
+  .upload-zone{padding:2rem 1rem}
+}
+
+/* Init overlay */
+.init-overlay{position:fixed;inset:0;background:rgba(15,39,70,.92);display:flex;align-items:center;justify-content:center;z-index:1000;transition:opacity .4s}
+.init-overlay.hidden{opacity:0;pointer-events:none}
+.init-box{text-align:center;color:#fff;max-width:420px;padding:2rem}
+.init-box .logo{font-size:3rem;margin-bottom:1rem}
+.init-box h2{font-size:1.25rem;margin-bottom:.5rem;font-weight:600}
+.init-box .init-detail{font-size:.88rem;opacity:.8;margin-bottom:1.2rem;min-height:1.5em}
+.init-bar-wrap{background:rgba(255,255,255,.15);border-radius:999px;height:6px;overflow:hidden;margin-bottom:.6rem}
+.init-bar-fill{height:100%;background:linear-gradient(90deg,#38bdf8,#818cf8);border-radius:999px;transition:width .3s;width:0%}
+.init-box .init-pct{font-size:.82rem;opacity:.65}
+.init-error{background:rgba(220,38,38,.2);color:#fca5a5;padding:.85rem 1rem;border-radius:8px;font-size:.88rem;margin-top:1rem}
+</style>
+</head>
+<body>
+<!-- Init overlay (shown while model downloads / upscaler initialises) -->
+<div class="init-overlay" id="initOverlay">
+  <div class="init-box">
+    <div class="logo">&#x1F43B;&#x200D;&#x2744;&#xFE0F;</div>
+    <h2>Preparing polar-resolve&hellip;</h2>
+    <p class="init-detail" id="initDetail">Connecting&hellip;</p>
+    <div class="init-bar-wrap"><div class="init-bar-fill" id="initBar"></div></div>
+    <div class="init-pct" id="initPct"></div>
+    <div class="init-error" id="initError" style="display:none"></div>
+  </div>
+</div>
+
+<div class="header">
+  <h1>&#x1F43B;&#x200D;&#x2744;&#xFE0F; polar-resolve</h1>
+  <p>Upscale images and videos 4&times; using Real-ESRGAN</p>
+</div>
+
+<div class="container">
+  <!-- Upload -->
+  <div class="card" id="uploadCard">
+    <div class="upload-zone" id="dropZone">
+      <div class="icon">&#128193;</div>
+      <p>Drag &amp; drop your file here or <span class="browse">browse</span></p>
+      <p class="hint">Images: PNG, JPEG, WebP &bull; Videos: MP4, MKV, AVI, MOV, WebM</p>
+    </div>
+    <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.webp,.mp4,.mkv,.avi,.mov,.webm" hidden>
+    <div class="file-info" id="fileInfo">
+      <span class="name" id="fileName"></span>
+      <span class="size" id="fileSize"></span>
+      <button class="remove" id="removeFile">&times;</button>
+    </div>
+  </div>
+
+  <!-- Options -->
+  <div class="card">
+    <div class="opt-header" id="optToggle">
+      <h3>Options</h3>
+      <span class="arrow" id="optArrow">&#9660;</span>
+    </div>
+    <div class="opt-body" id="optBody">
+      <!-- Common -->
+      <div class="form-row">
+        <div class="form-group">
+          <label for="tileSize">Tile Size</label>
+          <input type="number" id="tileSize" value="128" min="32" max="512" step="16">
+        </div>
+        <div class="form-group">
+          <label for="tileOverlap">Tile Overlap</label>
+          <input type="number" id="tileOverlap" value="16" min="0" max="128" step="4">
+        </div>
+      </div>
+      <!-- Image options -->
+      <div id="imageOpts">
+        <div class="form-group">
+          <label for="format">Output Format</label>
+          <select id="format">
+            <option value="">Same as input</option>
+            <option value="png">PNG</option>
+            <option value="jpg">JPEG</option>
+          </select>
+        </div>
+      </div>
+      <!-- Video options -->
+      <div id="videoOpts" style="display:none">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="codec">Codec</label>
+            <select id="codec">
+              <option value="libx264">H.264 (libx264)</option>
+              <option value="libx265">H.265 (libx265)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="crf">CRF (Quality)</label>
+            <input type="number" id="crf" value="18" min="0" max="51">
+          </div>
+        </div>
+        <div class="check-group">
+          <input type="checkbox" id="noAudio">
+          <label for="noAudio">Remove audio track</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Submit -->
+  <button class="btn" id="submitBtn" disabled>Upscale</button>
+
+  <!-- Progress -->
+  <div class="card progress-section" id="progressSection">
+    <h3 id="progressTitle">Processing&hellip;</h3>
+    <div class="bar-wrap"><div class="bar-fill" id="progressBar"></div></div>
+    <div class="progress-info">
+      <span id="progressDetail">Starting&hellip;</span>
+      <span id="progressPct">0 %</span>
+    </div>
+  </div>
+
+  <!-- Result -->
+  <div class="card result-section" id="resultSection">
+    <div class="checkmark">&#10003;</div>
+    <p class="msg" id="resultMsg">Upscaling complete!</p>
+    <a class="btn success" id="downloadBtn" download>Download Result</a>
+    <button class="btn muted" id="newJobBtn">Upscale Another</button>
+  </div>
+
+  <!-- Error -->
+  <div class="card error-section" id="errorSection">
+    <div class="error-msg" id="errorMsg"></div>
+    <button class="btn muted" id="retryBtn" style="margin-top:.85rem">Try Again</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+
+  /* ---- Server init status (model download) ---- */
+  (function initCheck(){
+    const overlay = $('initOverlay');
+    const detail  = $('initDetail');
+    const bar     = $('initBar');
+    const pct     = $('initPct');
+    const errBox  = $('initError');
+
+    function fmtBytes(b){
+      if(b<1024) return b+' B';
+      if(b<1048576) return (b/1024).toFixed(1)+' KB';
+      if(b<1073741824) return (b/1048576).toFixed(1)+' MB';
+      return (b/1073741824).toFixed(2)+' GB';
+    }
+
+    const es = new EventSource('/api/status');
+    es.addEventListener('status', e=>{
+      const d = JSON.parse(e.data);
+      if(d.phase==='ready'){
+        es.close();
+        overlay.classList.add('hidden');
+        return;
+      }
+      if(d.phase==='error'){
+        es.close();
+        detail.textContent = 'Initialization failed';
+        errBox.textContent = d.error||'Unknown error';
+        errBox.style.display = '';
+        bar.style.width = '0%';
+        pct.textContent = '';
+        return;
+      }
+      if(d.phase==='downloading'){
+        if(d.total>0){
+          const p = Math.round(d.current*100/d.total);
+          bar.style.width = p+'%';
+          pct.textContent = p+'%';
+          detail.textContent = 'Downloading model\u2026 '+fmtBytes(d.current)+' / '+fmtBytes(d.total);
+        } else {
+          bar.style.width = '0%';
+          pct.textContent = '';
+          detail.textContent = 'Downloading model\u2026 '+fmtBytes(d.current);
+        }
+      } else if(d.phase==='verifying'){
+        bar.style.width = '100%';
+        pct.textContent = '';
+        detail.textContent = 'Verifying download\u2026';
+      } else if(d.phase==='extracting'){
+        bar.style.width = '100%';
+        pct.textContent = '';
+        detail.textContent = 'Extracting model\u2026';
+      } else if(d.phase==='initializing'){
+        bar.style.width = '100%';
+        pct.textContent = '';
+        detail.textContent = 'Initializing upscaler\u2026';
+      }
+    });
+    es.onerror = ()=>{
+      es.close();
+      detail.textContent = 'Lost connection to server.';
+      errBox.textContent = 'Could not reach the server. Please refresh.';
+      errBox.style.display = '';
+    };
+  })();
+
+  /* ---- Main UI ---- */
+  const dropZone    = $('dropZone');
+  const fileInput   = $('fileInput');
+  const fileInfo    = $('fileInfo');
+  const submitBtn   = $('submitBtn');
+  const uploadCard  = $('uploadCard');
+  const imageOpts   = $('imageOpts');
+  const videoOpts   = $('videoOpts');
+  const optBody     = $('optBody');
+  const optArrow    = $('optArrow');
+  const progressSection = $('progressSection');
+  const progressBar = $('progressBar');
+  const progressDetail = $('progressDetail');
+  const progressPct = $('progressPct');
+  const progressTitle = $('progressTitle');
+  const resultSection = $('resultSection');
+  const downloadBtn = $('downloadBtn');
+  const resultMsg   = $('resultMsg');
+  const errorSection = $('errorSection');
+  const errorMsg    = $('errorMsg');
+
+  const IMG_EXT = ['.png','.jpg','.jpeg','.webp'];
+  const VID_EXT = ['.mp4','.mkv','.avi','.mov','.webm'];
+
+  let selectedFile = null;
+  let fileType = null;
+
+  function detectType(name){
+    const ext = '.'+name.split('.').pop().toLowerCase();
+    if(IMG_EXT.includes(ext)) return 'image';
+    if(VID_EXT.includes(ext)) return 'video';
+    return null;
+  }
+
+  function fmtSize(b){
+    if(b<1024) return b+' B';
+    if(b<1048576) return (b/1024).toFixed(1)+' KB';
+    if(b<1073741824) return (b/1048576).toFixed(1)+' MB';
+    return (b/1073741824).toFixed(2)+' GB';
+  }
+
+  function pickFile(file){
+    const t = detectType(file.name);
+    if(!t){ alert('Unsupported file type.'); return; }
+    selectedFile = file;
+    fileType = t;
+    $('fileName').textContent = file.name;
+    $('fileSize').textContent = fmtSize(file.size);
+    fileInfo.classList.add('visible');
+    dropZone.style.display = 'none';
+    imageOpts.style.display = t==='image'?'block':'none';
+    videoOpts.style.display = t==='video'?'block':'none';
+    submitBtn.disabled = false;
+  }
+
+  function clearFile(){
+    selectedFile = null;
+    fileType = null;
+    fileInput.value = '';
+    fileInfo.classList.remove('visible');
+    dropZone.style.display = '';
+    submitBtn.disabled = true;
+  }
+
+  /* Drop zone events */
+  dropZone.addEventListener('click', ()=> fileInput.click());
+  dropZone.addEventListener('dragover', e=>{ e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', ()=> dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e=>{
+    e.preventDefault(); dropZone.classList.remove('dragover');
+    if(e.dataTransfer.files.length) pickFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', ()=>{ if(fileInput.files.length) pickFile(fileInput.files[0]); });
+  $('removeFile').addEventListener('click', clearFile);
+
+  /* Options toggle */
+  $('optToggle').addEventListener('click', ()=>{
+    optBody.classList.toggle('hidden');
+    optArrow.classList.toggle('open');
+  });
+
+  /* Submit */
+  submitBtn.addEventListener('click', async ()=>{
+    if(!selectedFile) return;
+    submitBtn.disabled = true;
+    uploadCard.style.display = 'none';
+    progressSection.classList.add('active');
+    resultSection.classList.remove('active');
+    errorSection.classList.remove('active');
+    progressBar.style.width = '0%';
+    progressDetail.textContent = 'Uploading\u2026';
+    progressPct.textContent = '0 %';
+    progressTitle.textContent = 'Uploading\u2026';
+
+    const fd = new FormData();
+    fd.append('file', selectedFile);
+    fd.append('tileSize', $('tileSize').value);
+    fd.append('tileOverlap', $('tileOverlap').value);
+    if(fileType==='image'){
+      fd.append('format', $('format').value);
+    } else {
+      fd.append('codec', $('codec').value);
+      fd.append('crf', $('crf').value);
+      fd.append('noAudio', $('noAudio').checked?'true':'false');
+    }
+
+    try {
+      const resp = await fetch('/api/jobs',{method:'POST',body:fd});
+      if(!resp.ok){
+        const e = await resp.json();
+        throw new Error(e.error||'Upload failed');
+      }
+      const {id} = await resp.json();
+      progressTitle.textContent = 'Processing\u2026';
+      progressDetail.textContent = 'Waiting\u2026';
+
+      const es = new EventSource('/api/jobs/'+id+'/events');
+
+      es.addEventListener('progress', e=>{
+        const d = JSON.parse(e.data);
+        if(d.status==='completed'){
+          es.close();
+          progressSection.classList.remove('active');
+          resultSection.classList.add('active');
+          downloadBtn.href = '/api/jobs/'+id+'/download';
+          resultMsg.textContent = 'Upscaling complete!';
+          return;
+        }
+        if(d.status==='failed'){
+          es.close();
+          progressSection.classList.remove('active');
+          errorSection.classList.add('active');
+          errorMsg.textContent = d.error||'Processing failed';
+          return;
+        }
+        progressBar.style.width = d.progress+'%';
+        progressPct.textContent = d.progress+' %';
+        if(d.detail) progressDetail.textContent = d.detail;
+        if(d.status==='processing') progressTitle.textContent = 'Processing\u2026';
+      });
+
+      es.onerror = ()=>{
+        es.close();
+        progressSection.classList.remove('active');
+        errorSection.classList.add('active');
+        errorMsg.textContent = 'Lost connection to server.';
+      };
+    } catch(err){
+      progressSection.classList.remove('active');
+      errorSection.classList.add('active');
+      errorMsg.textContent = err.message;
+    }
+  });
+
+  function resetUI(){
+    clearFile();
+    uploadCard.style.display = '';
+    progressSection.classList.remove('active');
+    resultSection.classList.remove('active');
+    errorSection.classList.remove('active');
+    submitBtn.disabled = true;
+  }
+  $('newJobBtn').addEventListener('click', resetUI);
+  $('retryBtn').addEventListener('click', resetUI);
+})();
+</script>
+</body>
+</html>

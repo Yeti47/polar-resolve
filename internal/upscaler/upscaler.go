@@ -7,6 +7,8 @@ import (
 	"runtime"
 
 	"github.com/Yeti47/polar-resolve/internal/image"
+	"github.com/Yeti47/polar-resolve/internal/logging"
+	"github.com/Yeti47/polar-resolve/internal/progress"
 	ort "github.com/yalue/onnxruntime_go"
 )
 
@@ -21,12 +23,12 @@ const (
 
 // Config holds the configuration for the upscaler.
 type Config struct {
-	ModelPath   string // Path to the ONNX model file
-	Device      string // Execution provider: "auto", "cpu", "rocm"
-	LibPath     string // Path to libonnxruntime.so (empty = auto-detect)
-	TileSize    int    // Tile size for inference
-	TileOverlap int    // Overlap between tiles
-	Verbose     bool   // Enable verbose logging
+	ModelPath   string         // Path to the ONNX model file
+	Device      string         // Execution provider: "auto", "cpu", "rocm"
+	LibPath     string         // Path to libonnxruntime.so (empty = auto-detect)
+	TileSize    int            // Tile size for inference
+	TileOverlap int            // Overlap between tiles
+	Logger      logging.Logger // Logger for diagnostic output (nil = silent)
 }
 
 // Upscaler manages the ONNX runtime session for image upscaling.
@@ -34,6 +36,7 @@ type Config struct {
 // avoiding the expensive MIGraphX graph compilation on every inference call.
 type Upscaler struct {
 	config       Config
+	log          logging.Logger
 	tileConfig   TileConfig
 	envReady     bool
 	session      *ort.AdvancedSession
@@ -50,8 +53,14 @@ func New(cfg Config) (*Upscaler, error) {
 		cfg.TileOverlap = 16
 	}
 
+	log := cfg.Logger
+	if log == nil {
+		log = logging.Nop()
+	}
+
 	u := &Upscaler{
 		config: cfg,
+		log:    log,
 		tileConfig: TileConfig{
 			TileSize: cfg.TileSize,
 			Overlap:  cfg.TileOverlap,
@@ -64,9 +73,7 @@ func New(cfg Config) (*Upscaler, error) {
 		return nil, fmt.Errorf("failed to resolve ONNX Runtime library: %w", err)
 	}
 
-	if cfg.Verbose {
-		fmt.Printf("[polar-resolve] Using ONNX Runtime library: %s\n", libPath)
-	}
+	log.Infof("Using ONNX Runtime library: %s", libPath)
 
 	ort.SetSharedLibraryPath(libPath)
 
@@ -81,9 +88,7 @@ func New(cfg Config) (*Upscaler, error) {
 	}
 	u.envReady = true
 
-	if cfg.Verbose {
-		fmt.Printf("[polar-resolve] ONNX Runtime version: %s\n", ort.GetVersion())
-	}
+	log.Infof("ONNX Runtime version: %s", ort.GetVersion())
 
 	// Create a persistent session — MIGraphX compiles the model graph here once,
 	// rather than repeating this expensive step for every tile.
@@ -108,7 +113,7 @@ func (u *Upscaler) Close() {
 	}
 	if u.envReady {
 		if err := ort.DestroyEnvironment(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to destroy ONNX Runtime environment: %v\n", err)
+			u.log.Warnf("failed to destroy ONNX Runtime environment: %v", err)
 		}
 	}
 }
@@ -174,27 +179,41 @@ func (u *Upscaler) initSession() error {
 
 // UpscaleImage upscales a single image using tiling.
 func (u *Upscaler) UpscaleImage(img *image.RGBImage) (*image.RGBImage, error) {
-	tiles := SplitIntoTiles(img, u.tileConfig)
+	return u.UpscaleImageWithProgress(img, nil, nil)
+}
 
-	if u.config.Verbose {
-		fmt.Printf("[polar-resolve] Processing %d tiles (size=%d, overlap=%d)\n",
-			len(tiles), u.tileConfig.TileSize, u.tileConfig.Overlap)
+// UpscaleImageWithProgress upscales a single image, optionally overriding the
+// tile configuration and reporting per-tile progress via the tracker.
+func (u *Upscaler) UpscaleImageWithProgress(img *image.RGBImage, tc *TileConfig, tracker progress.Tracker) (*image.RGBImage, error) {
+	tileCfg := u.tileConfig
+	if tc != nil {
+		tileCfg = *tc
 	}
 
+	tiles := SplitIntoTiles(img, tileCfg)
+
+	u.log.Infof("Processing %d tiles (size=%d, overlap=%d)",
+		len(tiles), tileCfg.TileSize, tileCfg.Overlap)
+
 	for i := range tiles {
-		if u.config.Verbose {
-			fmt.Printf("[polar-resolve] Tile %d/%d (%dx%d at %d,%d)\n",
-				i+1, len(tiles), tiles[i].Width, tiles[i].Height, tiles[i].X, tiles[i].Y)
-		}
+		u.log.Infof("Tile %d/%d (%dx%d at %d,%d)",
+			i+1, len(tiles), tiles[i].Width, tiles[i].Height, tiles[i].X, tiles[i].Y)
 
 		outTile, err := u.runInference(tiles[i].Image)
 		if err != nil {
 			return nil, fmt.Errorf("inference failed on tile %d: %w", i+1, err)
 		}
 		tiles[i].Image = outTile
+
+		if tracker != nil {
+			tracker.OnProgress(i+1, len(tiles))
+		}
 	}
 
-	result := MergeTiles(tiles, img.Width, img.Height, ScaleFactor, u.tileConfig)
+	result := MergeTiles(tiles, img.Width, img.Height, ScaleFactor, tileCfg)
+	if tracker != nil {
+		tracker.Finish()
+	}
 	return result, nil
 }
 
@@ -291,20 +310,14 @@ func (u *Upscaler) configureProvider(options *ort.SessionOptions) error {
 			if device == "rocm" {
 				return fmt.Errorf("MIGraphX execution provider not available: %w", err)
 			}
-			if u.config.Verbose {
-				fmt.Printf("[polar-resolve] MIGraphX not available, falling back to CPU: %v\n", err)
-			}
+			u.log.Infof("MIGraphX not available, falling back to CPU: %v", err)
 		} else {
-			if u.config.Verbose {
-				fmt.Println("[polar-resolve] Using MIGraphXExecutionProvider")
-			}
+			u.log.Infof("Using MIGraphXExecutionProvider")
 			return nil
 		}
 	}
 
-	if u.config.Verbose {
-		fmt.Println("[polar-resolve] Using CPUExecutionProvider")
-	}
+	u.log.Infof("Using CPUExecutionProvider")
 	return nil
 }
 

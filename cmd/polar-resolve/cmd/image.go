@@ -55,9 +55,10 @@ func runImage(cmd *cobra.Command, args []string) error {
 
 	// Resolve model
 	modelPath := GetModelPath()
+	log := NewLogger()
 	if modelPath == "" {
 		Logf("No model specified, will auto-download...")
-		modelPath, err = model.EnsureModel()
+		modelPath, err = model.EnsureModel(log)
 		if err != nil {
 			return fmt.Errorf("failed to get model: %w", err)
 		}
@@ -71,7 +72,7 @@ func runImage(cmd *cobra.Command, args []string) error {
 		LibPath:     GetLibPath(),
 		TileSize:    imgTileSize,
 		TileOverlap: imgTileOverlap,
-		Verbose:     IsVerbose(),
+		Logger:      log,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize upscaler: %w", err)

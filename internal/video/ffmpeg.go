@@ -10,9 +10,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Yeti47/polar-resolve/internal/image"
+	"github.com/Yeti47/polar-resolve/internal/logging"
+	"github.com/Yeti47/polar-resolve/internal/progress"
 )
 
 // FrameUpscaler is the interface for upscaling a single frame.
@@ -39,7 +40,8 @@ type ProcessConfig struct {
 	CRF        int
 	NoAudio    bool
 	Upscaler   FrameUpscaler
-	Verbose    bool
+	Logger     logging.Logger   // nil = silent
+	Tracker    progress.Tracker // nil = ConsoleTracker
 }
 
 // Probe retrieves video metadata using ffprobe.
@@ -126,13 +128,18 @@ func Process(cfg ProcessConfig) error {
 	frameSize := info.Width * info.Height * 3
 	outFrameSize := outW * outH * 3
 
+	log := cfg.Logger
+	if log == nil {
+		log = logging.Nop()
+	}
+
 	// Step 1: Extract audio to temp file (unless --no-audio is set)
 	audioPath := cfg.OutputPath + ".audio.mka"
 	hasAudio := false
 	if !cfg.NoAudio {
 		hasAudio = extractAudio(cfg.InputPath, audioPath)
-		if hasAudio && cfg.Verbose {
-			fmt.Println("[polar-resolve] Audio stream extracted")
+		if hasAudio {
+			log.Infof("Audio stream extracted")
 		}
 	}
 	defer os.Remove(audioPath)
@@ -187,7 +194,11 @@ func Process(cfg ProcessConfig) error {
 	// Step 4: Process frames
 	frameBuf := make([]byte, frameSize)
 	frameNum := 0
-	startTime := time.Now()
+
+	tracker := cfg.Tracker
+	if tracker == nil {
+		tracker = progress.NewConsoleTracker()
+	}
 
 	for {
 		_, err := io.ReadFull(decodePipe, frameBuf)
@@ -214,11 +225,11 @@ func Process(cfg ProcessConfig) error {
 			return fmt.Errorf("write frame %d: %w", frameNum, err)
 		}
 
-		printProgress(frameNum, info.FrameCount, startTime)
+		tracker.OnProgress(frameNum, info.FrameCount)
 	}
 
 	encodePipe.Close()
-	fmt.Println()
+	tracker.Finish()
 
 	if err := decodeCmd.Wait(); err != nil {
 		return fmt.Errorf("decoder error: %w", err)
@@ -248,25 +259,6 @@ func extractAudio(inputPath, outputPath string) bool {
 	return err == nil && info.Size() > 0
 }
 
-// printProgress displays progress information.
-func printProgress(current, total int, startTime time.Time) {
-	elapsed := time.Since(startTime).Seconds()
-	fps := float64(current) / elapsed
-
-	if total > 0 {
-		pct := float64(current) / float64(total) * 100
-		eta := 0.0
-		if fps > 0 {
-			eta = float64(total-current) / fps
-		}
-		fmt.Printf("\r  Frame %d/%d (%.1f%%) | %.2f fps | ETA: %s",
-			current, total, pct, fps, formatDuration(eta))
-	} else {
-		fmt.Printf("\r  Frame %d | %.2f fps | Elapsed: %s",
-			current, fps, formatDuration(elapsed))
-	}
-}
-
 // parseFrameRate parses a fractional frame rate string like "30000/1001".
 func parseFrameRate(s string) float64 {
 	parts := strings.Split(s, "/")
@@ -280,22 +272,4 @@ func parseFrameRate(s string) float64 {
 		return 0
 	}
 	return num / den
-}
-
-// formatDuration formats seconds into a human-readable duration string.
-func formatDuration(seconds float64) string {
-	if seconds < 0 {
-		return "N/A"
-	}
-	d := time.Duration(seconds * float64(time.Second))
-	h := int(d.Hours())
-	m := int(d.Minutes()) % 60
-	s := int(d.Seconds()) % 60
-	if h > 0 {
-		return fmt.Sprintf("%dh%02dm%02ds", h, m, s)
-	}
-	if m > 0 {
-		return fmt.Sprintf("%dm%02ds", m, s)
-	}
-	return fmt.Sprintf("%ds", s)
 }

@@ -48,9 +48,10 @@ func runVideo(cmd *cobra.Command, args []string) error {
 	// Resolve model
 	modelPath := GetModelPath()
 	var err error
+	log := NewLogger()
 	if modelPath == "" {
 		Logf("No model specified, will auto-download...")
-		modelPath, err = model.EnsureModel()
+		modelPath, err = model.EnsureModel(log)
 		if err != nil {
 			return fmt.Errorf("failed to get model: %w", err)
 		}
@@ -79,7 +80,7 @@ func runVideo(cmd *cobra.Command, args []string) error {
 		LibPath:     GetLibPath(),
 		TileSize:    vidTileSize,
 		TileOverlap: vidTileOverlap,
-		Verbose:     IsVerbose(),
+		Logger:      log,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize upscaler: %w", err)
@@ -95,7 +96,7 @@ func runVideo(cmd *cobra.Command, args []string) error {
 		CRF:        vidCRF,
 		NoAudio:    vidNoAudio,
 		Upscaler:   u,
-		Verbose:    IsVerbose(),
+		Logger:     log,
 	})
 	if err != nil {
 		return fmt.Errorf("video processing failed: %w", err)
