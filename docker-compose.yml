@@ -1,5 +1,6 @@
 services:
   polar-resolve:
+    image: polar-resolve
     build:
       context: .
       dockerfile: Dockerfile
