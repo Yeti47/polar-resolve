@@ -16,6 +16,7 @@ var (
 	vidCRF         int
 	vidTileSize    int
 	vidTileOverlap int
+	vidNoAudio     bool
 )
 
 var videoCmd = &cobra.Command{
@@ -32,6 +33,7 @@ func init() {
 	videoCmd.Flags().IntVar(&vidCRF, "crf", 18, "Constant rate factor (quality, lower=better)")
 	videoCmd.Flags().IntVar(&vidTileSize, "tile-size", 128, "Tile size for inference (pixels)")
 	videoCmd.Flags().IntVar(&vidTileOverlap, "tile-overlap", 16, "Overlap between tiles (pixels)")
+	videoCmd.Flags().BoolVar(&vidNoAudio, "no-audio", false, "Remove audio track from the output video")
 
 	_ = videoCmd.MarkFlagRequired("input")
 
@@ -91,6 +93,7 @@ func runVideo(cmd *cobra.Command, args []string) error {
 		Info:       info,
 		Codec:      vidCodec,
 		CRF:        vidCRF,
+		NoAudio:    vidNoAudio,
 		Upscaler:   u,
 		Verbose:    IsVerbose(),
 	})

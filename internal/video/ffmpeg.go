@@ -37,6 +37,7 @@ type ProcessConfig struct {
 	Info       *VideoInfo
 	Codec      string
 	CRF        int
+	NoAudio    bool
 	Upscaler   FrameUpscaler
 	Verbose    bool
 }
@@ -125,11 +126,14 @@ func Process(cfg ProcessConfig) error {
 	frameSize := info.Width * info.Height * 3
 	outFrameSize := outW * outH * 3
 
-	// Step 1: Extract audio to temp file
+	// Step 1: Extract audio to temp file (unless --no-audio is set)
 	audioPath := cfg.OutputPath + ".audio.mka"
-	hasAudio := extractAudio(cfg.InputPath, audioPath)
-	if hasAudio && cfg.Verbose {
-		fmt.Println("[polar-resolve] Audio stream extracted")
+	hasAudio := false
+	if !cfg.NoAudio {
+		hasAudio = extractAudio(cfg.InputPath, audioPath)
+		if hasAudio && cfg.Verbose {
+			fmt.Println("[polar-resolve] Audio stream extracted")
+		}
 	}
 	defer os.Remove(audioPath)
 

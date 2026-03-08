@@ -59,6 +59,7 @@ docker compose run --rm polar-resolve video \
 | `--tile-overlap` | `16` | Overlap between tiles in pixels |
 | `--codec` | `libx264` | Video codec (`libx264`, `libx265`) |
 | `--crf` | `18` | Video quality (lower = better) |
+| `--no-audio` | `false` | Remove audio track from the output video |
 | `--verbose` | `false` | Enable verbose logging |
 
 ### Environment variables
