@@ -1,0 +1,22 @@
+# Build artifacts
+/polar-resolve
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# Test data
+test/
+
+# Docs
+README.md
+LICENSE

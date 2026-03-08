@@ -1,0 +1,41 @@
+# Build output
+/polar-resolve
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Go coverage & profiling
+*.out
+*.prof
+coverage.html
+
+# Go workspace (Go 1.18+)
+go.work
+go.work.sum
+
+# Dependency directories (if vendoring)
+# vendor/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# Test data
+/test/
+
+# Docker
+.env

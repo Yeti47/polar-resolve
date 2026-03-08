@@ -1,0 +1,33 @@
+services:
+  polar-resolve:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # AMD GPU passthrough
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
+    security_opt:
+      - seccomp=unconfined
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=10.3.0
+      - POLAR_RESOLVE_DEVICE=rocm
+      - POLAR_RESOLVE_VERBOSE=true
+    volumes:
+      # Model cache — persists across runs
+      - polar-resolve-models:/models
+      # Mount host directories for input/output
+      - ./test/input:/workspace/input:ro
+      - ./test/output:/workspace/output
+    # Override default CMD; pass your own arguments
+    # Examples:
+    #   docker compose run polar-resolve image --input /workspace/input/photo.png --output /workspace/output/photo_4x.png
+    #   docker compose run polar-resolve video  --input /workspace/input/clip.mp4  --output /workspace/output/clip_4x.mp4
+    entrypoint: ["polar-resolve"]
+    command: ["--help"]
+
+volumes:
+  polar-resolve-models:
