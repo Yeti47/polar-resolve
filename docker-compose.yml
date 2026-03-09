@@ -17,6 +17,8 @@ services:
       - HSA_OVERRIDE_GFX_VERSION=10.3.0
       - POLAR_RESOLVE_DEVICE=rocm
       - POLAR_RESOLVE_VERBOSE=true
+    ports:
+      - "8080:8080"
     volumes:
       # Model cache — persists across runs
       - polar-resolve-models:/models

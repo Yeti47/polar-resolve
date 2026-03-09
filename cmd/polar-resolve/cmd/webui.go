@@ -5,6 +5,7 @@ import (
 
 	"github.com/Yeti47/polar-resolve/internal/web"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -22,7 +23,10 @@ for upscaling images and videos using Real-ESRGAN.`,
 
 func init() {
 	webuiCmd.Flags().IntVar(&webuiPort, "port", 8080, "Port to listen on")
-	webuiCmd.Flags().StringVar(&webuiBind, "bind", "127.0.0.1", "Address to bind to")
+	webuiCmd.Flags().StringVar(&webuiBind, "bind", "0.0.0.0", "Address to bind to")
+
+	_ = viper.BindPFlag("port", webuiCmd.Flags().Lookup("port"))
+	_ = viper.BindPFlag("bind", webuiCmd.Flags().Lookup("bind"))
 
 	rootCmd.AddCommand(webuiCmd)
 }
@@ -31,8 +35,8 @@ func runWebUI(cmd *cobra.Command, args []string) error {
 	// Model download (if needed) happens in the background inside the server
 	// so the web UI is available immediately and can show download progress.
 	srv, err := web.NewServer(web.ServerConfig{
-		Bind:      webuiBind,
-		Port:      webuiPort,
+		Bind:      viper.GetString("bind"),
+		Port:      viper.GetInt("port"),
 		ModelPath: GetModelPath(),
 		Device:    GetDevice(),
 		LibPath:   GetLibPath(),
