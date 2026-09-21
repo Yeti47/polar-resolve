@@ -28,6 +28,8 @@ services:
     # Examples:
     #   docker compose run polar-resolve image --input /workspace/input/photo.png --output /workspace/output/photo_4x.png
     #   docker compose run polar-resolve video  --input /workspace/input/clip.mp4  --output /workspace/output/clip_4x.mp4
+    #   docker compose run polar-resolve download "https://www.youtube.com/watch?v=..."
+    #   docker compose run polar-resolve download --upscale "https://x.com/user/status/..."
     entrypoint: ["polar-resolve"]
     command: ["--help"]
 

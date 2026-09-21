@@ -71,11 +71,17 @@ RUN CGO_ENABLED=1 go build -o /polar-resolve ./cmd/polar-resolve/
 # ---------------------------------------------------------------------------
 FROM rocm/dev-ubuntu-22.04:7.1.1
 
-# Install ffmpeg, MIGraphX runtime, and minimal runtime dependencies
+# Install ffmpeg, MIGraphX runtime, yt-dlp, and minimal runtime dependencies
+# YTDLP_VERSION may be pinned (e.g. --build-arg YTDLP_VERSION=2026.08.19); by
+# default the latest release is installed.
+ARG YTDLP_VERSION=""
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
         ca-certificates \
-        migraphx && \
+        migraphx \
+        python3 \
+        python3-pip && \
+    pip3 install --no-cache-dir "yt-dlp${YTDLP_VERSION:+==${YTDLP_VERSION}}" && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy ORT libraries

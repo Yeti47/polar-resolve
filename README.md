@@ -1,21 +1,49 @@
 # polar-resolve
 
-4× image and video upscaler powered by [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) (ONNX Runtime). Runs on CPU or AMD GPU via ROCm/MIGraphX.
+A multi-media toolkit: 4× image and video upscaling powered by
+[Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) (ONNX Runtime) plus
+video downloading from YouTube, Twitter/X, and other
+[yt-dlp](https://github.com/yt-dlp/yt-dlp)-supported sites. Runs on CPU or AMD
+GPU via ROCm/MIGraphX.
 
 ## Features
 
 - **Image upscaling** — PNG, JPEG, WebP; single files or glob patterns
 - **Video upscaling** — frame-by-frame processing via ffmpeg with audio passthrough
+- **Video downloads** — YouTube, Twitter/X, and hundreds of yt-dlp sites, with optional auto-upscaling
+- **Web UI** — browser interface for uploads *and* URL downloads with live progress
 - **GPU acceleration** — AMD ROCm (MIGraphX execution provider)
 - **Auto model download** — fetches Real-ESRGAN-General-x4v3 from Qualcomm AI Hub on first run
 - **Tiled inference** — processes large images in overlapping tiles with blended seams
 
 ## Prerequisites
 
-- Docker with [Compose V2](https://docs.docker.com/compose/)
+- Docker with [Compose V2](https://docs.docker.com/compose/) — *or* the published image (see below)
 - AMD GPU with ROCm support (for GPU mode) — tested with RX 6800 (gfx1030)
+- Downloads require `yt-dlp` and `ffmpeg` (both included in the Docker image)
 
 ## Setup
+
+### Option A — pull the published image
+
+```bash
+mkdir -p ~/polar-resolve/input ~/polar-resolve/output
+docker run --rm -it \
+  --device /dev/kfd --device /dev/dri \
+  --group-add video --group-add render \
+  --security-opt seccomp=unconfined \
+  -e HSA_OVERRIDE_GFX_VERSION=10.3.0 \
+  -e POLAR_RESOLVE_DEVICE=rocm \
+  -v polar-resolve-models:/models \
+  -v ~/polar-resolve/input:/workspace/input \
+  -v ~/polar-resolve/output:/workspace/output \
+  ghcr.io/yeti47/polar-resolve:latest --help
+```
+
+Images are published to GHCR as `latest`, `vX.Y.Z`/`vX.Y` (on git tags), and
+short-SHA tags. Drop the device/GPU flags and pass `--device cpu` to run on CPU.
+
+### Option B — build from source
 
 ```bash
 git clone https://github.com/Yeti47/polar-resolve.git
@@ -49,6 +77,47 @@ docker compose run --rm polar-resolve video \
   --output clip_4x.mp4
 ```
 
+### Download from YouTube / Twitter
+
+```bash
+# Download a YouTube video
+docker compose run --rm polar-resolve download \
+  "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+# Download a Twitter/X video and 4× upscale it in one step
+docker compose run --rm polar-resolve download --upscale \
+  "https://x.com/user/status/1234567890"
+
+# Audio only (MP3), capped at the best stream up to 720p
+docker compose run --rm polar-resolve download --audio-only -q 720p "https://youtu.be/..."
+```
+
+Relative `--output` paths resolve under `/workspace/output`; the default output
+name is derived from the video title (with a `_4x` suffix when `--upscale` is used).
+
+| Download flag | Default | Description |
+|---------------|---------|-------------|
+| `--url`, `-u` | — | Video URL (repeatable; URLs may also be passed as arguments) |
+| `--output`, `-o` | `/workspace/output` | Output file or directory |
+| `--quality`, `-q` | `best` | Max quality: `best`, `1080p`, `720p`, `480p`, `360p` |
+| `--audio-only` | `false` | Extract audio as MP3 instead of downloading video |
+| `--cookies-from-browser` | — | Load cookies from a browser (`chrome`, `firefox`, …) for private/age-restricted videos |
+| `--upscale` | `false` | 4× upscale the downloaded video |
+
+With `--upscale`, the video flags (`--codec`, `--crf`, `--tile-size`,
+`--tile-overlap`, `--no-audio`) apply to the upscaling step.
+
+### Web UI
+
+```bash
+docker compose run --rm --service-ports polar-resolve web-ui
+# then open http://localhost:8080
+```
+
+The web UI has two modes: **Upload file** (image/video upscaling) and
+**From URL** (YouTube/Twitter/X downloads, optionally upscaled). A live status
+overlay shows model download progress on first start.
+
 ### Options
 
 | Flag | Default | Description |
@@ -68,17 +137,27 @@ docker compose run --rm polar-resolve video \
 |----------|-------------|
 | `POLAR_RESOLVE_DEVICE` | Override `--device` |
 | `POLAR_RESOLVE_MODEL_DIR` | Model cache directory (default: `/models` in container) |
+| `POLAR_RESOLVE_YTDLP` | Path to a specific `yt-dlp` binary (default: found on `PATH`) |
 | `HSA_OVERRIDE_GFX_VERSION` | ROCm GFX version override (set to `10.3.0` for RDNA2) |
 
 ## Building from source (without Docker)
 
-Requires Go 1.25+, ONNX Runtime shared libraries, and ffmpeg.
+Requires Go 1.25+, ONNX Runtime shared libraries, ffmpeg, and yt-dlp (only for
+the `download` command).
 
 ```bash
 CGO_ENABLED=1 go build -o polar-resolve ./cmd/polar-resolve/
 ```
 
 Set `LD_LIBRARY_PATH` to include your ONNX Runtime library directory.
+
+## Container images
+
+The [publish workflow](.github/workflows/docker-publish.yml) builds and pushes
+the image on `v*` tag pushes and on manual dispatch, publishing to
+`ghcr.io/yeti47/polar-resolve` (`latest` plus the `vX.Y.Z`/`vX.Y` and
+short-SHA tags). Build locally with `docker build -t polar-resolve .`; pin the
+bundled yt-dlp with `--build-arg YTDLP_VERSION=2026.08.19`.
 
 ## License
 

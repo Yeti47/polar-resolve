@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/Yeti47/polar-resolve/internal/download"
 	"github.com/gin-gonic/gin"
 )
 
@@ -70,6 +72,13 @@ func (s *Server) handleCreateJob(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Server is still initializing. Please wait."})
 		return
 	}
+
+	// URL download mode
+	if rawURL := strings.TrimSpace(c.PostForm("url")); rawURL != "" {
+		s.handleCreateDownloadJob(c, rawURL)
+		return
+	}
+
 	header, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no file uploaded"})
@@ -104,6 +113,7 @@ func (s *Server) handleCreateJob(c *gin.Context) {
 	baseName := filepath.Base(header.Filename)
 
 	j.fileType = fileType
+	j.jobDir = jobDir
 	j.inputPath = inputPath
 	j.tileSize = intFormValue(c, "tileSize", 128)
 	j.tileOverlap = intFormValue(c, "tileOverlap", 16)
@@ -128,6 +138,49 @@ func (s *Server) handleCreateJob(c *gin.Context) {
 	s.queue <- j
 
 	c.JSON(http.StatusAccepted, gin.H{"id": j.id, "type": fileType})
+}
+
+// handleCreateDownloadJob queues a remote video download (e.g. YouTube, Twitter/X).
+func (s *Server) handleCreateDownloadJob(c *gin.Context, rawURL string) {
+	if !download.Available() {
+		msg := "yt-dlp is not available on the server"
+		if _, err := download.BinaryPath(); err != nil {
+			msg = err.Error()
+		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": msg})
+		return
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid URL (must be http or https)"})
+		return
+	}
+
+	j := newJob()
+	jobDir := filepath.Join(s.tmpDir, j.id)
+	if err := os.MkdirAll(jobDir, 0o755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+
+	j.fileType = "download"
+	j.jobDir = jobDir
+	j.sourceURL = rawURL
+	j.quality = c.DefaultPostForm("quality", "best")
+	j.audioOnly = c.PostForm("audioOnly") == "true"
+	j.upscale = c.PostForm("upscale") == "true"
+	j.cookies = c.PostForm("cookiesFromBrowser")
+	j.tileSize = intFormValue(c, "tileSize", 128)
+	j.tileOverlap = intFormValue(c, "tileOverlap", 16)
+	j.codec = c.DefaultPostForm("codec", "libx264")
+	j.crf = intFormValue(c, "crf", 18)
+	j.noAudio = c.PostForm("noAudio") == "true"
+
+	s.jobs.Store(j.id, j)
+	s.queue <- j
+
+	c.JSON(http.StatusAccepted, gin.H{"id": j.id, "type": "download"})
 }
 
 func (s *Server) handleJobEvents(c *gin.Context) {

@@ -25,6 +25,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .container{max-width:580px;margin:1.5rem auto;padding:0 1rem}
 .card{background:var(--surface);border-radius:var(--radius);box-shadow:0 1px 3px rgba(0,0,0,.08);padding:1.25rem;margin-bottom:1.25rem}
 
+/* Mode tabs */
+.tabs{display:flex;background:#e2e8f0;border-radius:10px;padding:4px;margin-bottom:1.1rem;gap:4px}
+.tab{flex:1;padding:.5rem;border:none;border-radius:8px;background:transparent;font-size:.87rem;font-weight:600;color:var(--text-sec);cursor:pointer;transition:background .15s,color .15s}
+.tab.active{background:var(--surface);color:var(--primary);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+
+/* URL mode */
+.url-input{width:100%;padding:.7rem .8rem;border:1px solid var(--border);border-radius:8px;font-size:.9rem;background:var(--surface);color:var(--text)}
+.url-input:focus{outline:none;border-color:var(--primary)}
+.platform-badge{display:none;align-items:center;gap:.45rem;margin-top:.6rem;font-size:.8rem;color:var(--text-sec)}
+.platform-badge.visible{display:flex}
+.platform-badge .dot{width:8px;height:8px;border-radius:50%;background:var(--primary);flex:none}
+.platform-badge .badge{display:inline-block;padding:.1rem .5rem;border-radius:999px;background:#eff6ff;color:var(--primary);font-weight:600;font-size:.74rem}
+
 /* Upload zone */
 .upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:2.5rem 1.5rem;text-align:center;cursor:pointer;transition:border-color .2s,background .2s}
 .upload-zone:hover,.upload-zone.dragover{border-color:var(--primary);background:#eff6ff}
@@ -114,22 +127,66 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
 <div class="header">
   <h1>&#x1F43B;&#x200D;&#x2744;&#xFE0F; polar-resolve</h1>
-  <p>Upscale images and videos 4&times; using Real-ESRGAN</p>
+  <p>Upscale images &amp; videos 4&times; &bull; Download from YouTube &amp; Twitter/X</p>
 </div>
 
 <div class="container">
-  <!-- Upload -->
+  <!-- Upload / URL -->
   <div class="card" id="uploadCard">
-    <div class="upload-zone" id="dropZone">
-      <div class="icon">&#128193;</div>
-      <p>Drag &amp; drop your file here or <span class="browse">browse</span></p>
-      <p class="hint">Images: PNG, JPEG, WebP &bull; Videos: MP4, MKV, AVI, MOV, WebM</p>
+    <div class="tabs">
+      <button class="tab active" id="tabUpload" type="button">Upload file</button>
+      <button class="tab" id="tabUrl" type="button">From URL</button>
     </div>
-    <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.webp,.mp4,.mkv,.avi,.mov,.webm" hidden>
-    <div class="file-info" id="fileInfo">
-      <span class="name" id="fileName"></span>
-      <span class="size" id="fileSize"></span>
-      <button class="remove" id="removeFile">&times;</button>
+
+    <div id="uploadMode">
+      <div class="upload-zone" id="dropZone">
+        <div class="icon">&#128193;</div>
+        <p>Drag &amp; drop your file here or <span class="browse">browse</span></p>
+        <p class="hint">Images: PNG, JPEG, WebP &bull; Videos: MP4, MKV, AVI, MOV, WebM</p>
+      </div>
+      <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.webp,.mp4,.mkv,.avi,.mov,.webm" hidden>
+      <div class="file-info" id="fileInfo">
+        <span class="name" id="fileName"></span>
+        <span class="size" id="fileSize"></span>
+        <button class="remove" id="removeFile">&times;</button>
+      </div>
+    </div>
+
+    <div id="urlMode" style="display:none">
+      <input type="url" class="url-input" id="videoUrl" placeholder="https://www.youtube.com/watch?v=... or https://x.com/.../status/...">
+      <div class="platform-badge" id="platformBadge">
+        <span class="dot"></span>
+        <span>Detected: <span class="badge" id="platformText">unknown</span></span>
+      </div>
+      <div class="form-group" style="margin-top:.95rem">
+        <label for="quality">Max Quality</label>
+        <select id="quality">
+          <option value="best">Best available</option>
+          <option value="1080p">1080p</option>
+          <option value="720p">720p</option>
+          <option value="480p">480p</option>
+          <option value="360p">360p</option>
+        </select>
+      </div>
+      <div class="check-group">
+        <input type="checkbox" id="audioOnly">
+        <label for="audioOnly">Audio only (MP3)</label>
+      </div>
+      <div class="check-group" style="margin-top:.5rem">
+        <input type="checkbox" id="upscale">
+        <label for="upscale">Also 4&times; upscale after downloading</label>
+      </div>
+      <div class="form-group" style="margin-top:.85rem">
+        <label for="cookiesFromBrowser">Cookies from browser (optional, for private/age-restricted videos)</label>
+        <select id="cookiesFromBrowser">
+          <option value="">None</option>
+          <option value="chrome">Chrome</option>
+          <option value="firefox">Firefox</option>
+          <option value="edge">Edge</option>
+          <option value="brave">Brave</option>
+          <option value="chromium">Chromium</option>
+        </select>
+      </div>
     </div>
   </div>
 
@@ -302,18 +359,62 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   const resultMsg   = $('resultMsg');
   const errorSection = $('errorSection');
   const errorMsg    = $('errorMsg');
+  const tabUpload   = $('tabUpload');
+  const tabUrl      = $('tabUrl');
+  const uploadMode  = $('uploadMode');
+  const urlMode     = $('urlMode');
+  const videoUrl    = $('videoUrl');
+  const platformBadge = $('platformBadge');
+  const platformText  = $('platformText');
+  const audioOnly   = $('audioOnly');
+  const upscaleChk  = $('upscale');
 
   const IMG_EXT = ['.png','.jpg','.jpeg','.webp'];
   const VID_EXT = ['.mp4','.mkv','.avi','.mov','.webm'];
 
   let selectedFile = null;
   let fileType = null;
+  let mode = 'upload';
 
   function detectType(name){
     const ext = '.'+name.split('.').pop().toLowerCase();
     if(IMG_EXT.includes(ext)) return 'image';
     if(VID_EXT.includes(ext)) return 'video';
     return null;
+  }
+
+  function detectPlatform(raw){
+    const u = raw.toLowerCase();
+    if(u.includes('youtube.com')||u.includes('youtu.be')) return 'YouTube';
+    if(u.includes('twitter.com')||u.includes('x.com')) return 'Twitter / X';
+    if(/^https?:\/\/\S+$/i.test(raw)) return 'other site';
+    return null;
+  }
+
+  function updateSubmitState(){
+    if(mode==='url'){
+      submitBtn.disabled = !detectPlatform(videoUrl.value.trim());
+      submitBtn.textContent = upscaleChk.checked && !audioOnly.checked ? 'Download & Upscale' : 'Download';
+    } else {
+      submitBtn.disabled = !selectedFile;
+      submitBtn.textContent = 'Upscale';
+    }
+  }
+
+  function setMode(m){
+    mode = m;
+    tabUpload.classList.toggle('active', m==='upload');
+    tabUrl.classList.toggle('active', m==='url');
+    uploadMode.style.display = m==='upload' ? '' : 'none';
+    urlMode.style.display = m==='url' ? '' : 'none';
+    if(m==='url'){
+      imageOpts.style.display = 'none';
+      videoOpts.style.display = 'block';
+    } else if(fileType){
+      imageOpts.style.display = fileType==='image'?'block':'none';
+      videoOpts.style.display = fileType==='video'?'block':'none';
+    }
+    updateSubmitState();
   }
 
   function fmtSize(b){
@@ -334,7 +435,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     dropZone.style.display = 'none';
     imageOpts.style.display = t==='image'?'block':'none';
     videoOpts.style.display = t==='video'?'block':'none';
-    submitBtn.disabled = false;
+    updateSubmitState();
   }
 
   function clearFile(){
@@ -343,7 +444,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     fileInput.value = '';
     fileInfo.classList.remove('visible');
     dropZone.style.display = '';
-    submitBtn.disabled = true;
+    updateSubmitState();
   }
 
   /* Drop zone events */
@@ -357,6 +458,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   fileInput.addEventListener('change', ()=>{ if(fileInput.files.length) pickFile(fileInput.files[0]); });
   $('removeFile').addEventListener('click', clearFile);
 
+  /* Mode tabs */
+  tabUpload.addEventListener('click', ()=> setMode('upload'));
+  tabUrl.addEventListener('click', ()=> setMode('url'));
+
+  /* URL input */
+  videoUrl.addEventListener('input', ()=>{
+    const p = detectPlatform(videoUrl.value.trim());
+    if(p){
+      platformText.textContent = p;
+      platformBadge.classList.add('visible');
+    } else {
+      platformBadge.classList.remove('visible');
+    }
+    updateSubmitState();
+  });
+
+  audioOnly.addEventListener('change', ()=>{
+    if(audioOnly.checked){ upscaleChk.checked = false; upscaleChk.disabled = true; }
+    else { upscaleChk.disabled = false; }
+    updateSubmitState();
+  });
+  upscaleChk.addEventListener('change', updateSubmitState);
+
   /* Options toggle */
   $('optToggle').addEventListener('click', ()=>{
     optBody.classList.toggle('hidden');
@@ -365,28 +489,43 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
   /* Submit */
   submitBtn.addEventListener('click', async ()=>{
-    if(!selectedFile) return;
+    const isURL = mode==='url';
+    if(isURL && !detectPlatform(videoUrl.value.trim())) return;
+    if(!isURL && !selectedFile) return;
     submitBtn.disabled = true;
     uploadCard.style.display = 'none';
     progressSection.classList.add('active');
     resultSection.classList.remove('active');
     errorSection.classList.remove('active');
     progressBar.style.width = '0%';
-    progressDetail.textContent = 'Uploading\u2026';
+    progressDetail.textContent = isURL ? 'Downloading\u2026' : 'Uploading\u2026';
     progressPct.textContent = '0 %';
-    progressTitle.textContent = 'Uploading\u2026';
+    progressTitle.textContent = isURL ? 'Downloading\u2026' : 'Uploading\u2026';
 
     const fd = new FormData();
-    fd.append('file', selectedFile);
     fd.append('tileSize', $('tileSize').value);
     fd.append('tileOverlap', $('tileOverlap').value);
-    if(fileType==='image'){
-      fd.append('format', $('format').value);
-    } else {
+    if(isURL){
+      fd.append('url', videoUrl.value.trim());
+      fd.append('quality', $('quality').value);
+      fd.append('audioOnly', audioOnly.checked?'true':'false');
+      fd.append('upscale', upscaleChk.checked?'true':'false');
+      if($('cookiesFromBrowser').value) fd.append('cookiesFromBrowser', $('cookiesFromBrowser').value);
       fd.append('codec', $('codec').value);
       fd.append('crf', $('crf').value);
       fd.append('noAudio', $('noAudio').checked?'true':'false');
+    } else {
+      fd.append('file', selectedFile);
+      if(fileType==='image'){
+        fd.append('format', $('format').value);
+      } else {
+        fd.append('codec', $('codec').value);
+        fd.append('crf', $('crf').value);
+        fd.append('noAudio', $('noAudio').checked?'true':'false');
+      }
     }
+
+    const labelForDone = isURL ? (upscaleChk.checked && !audioOnly.checked ? 'Upscaling complete!' : (audioOnly.checked ? 'Audio download complete!' : 'Download complete!')) : 'Upscaling complete!';
 
     try {
       const resp = await fetch('/api/jobs',{method:'POST',body:fd});
@@ -407,7 +546,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           progressSection.classList.remove('active');
           resultSection.classList.add('active');
           downloadBtn.href = '/api/jobs/'+id+'/download';
-          resultMsg.textContent = 'Upscaling complete!';
+          resultMsg.textContent = labelForDone;
           return;
         }
         if(d.status==='failed'){
@@ -442,7 +581,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     progressSection.classList.remove('active');
     resultSection.classList.remove('active');
     errorSection.classList.remove('active');
-    submitBtn.disabled = true;
+    if(mode==='url'){
+      audioOnly.checked = false;
+      upscaleChk.checked = false;
+      upscaleChk.disabled = false;
+    }
+    updateSubmitState();
   }
   $('newJobBtn').addEventListener('click', resetUI);
   $('retryBtn').addEventListener('click', resetUI);

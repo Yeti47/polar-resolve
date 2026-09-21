@@ -40,11 +40,38 @@ func init() {
 	rootCmd.AddCommand(videoCmd)
 }
 
+// videoOptions groups the upscaling parameters shared by the `video` command
+// and the `download --upscale` flow.
+type videoOptions struct {
+	Codec       string
+	CRF         int
+	TileSize    int
+	TileOverlap int
+	NoAudio     bool
+}
+
 func runVideo(cmd *cobra.Command, args []string) error {
 	// Resolve relative paths to workspace directories
 	vidInput = ResolveInputPath(vidInput)
 	vidOutput = ResolveOutputPath(vidOutput)
 
+	// Resolve output path
+	outPath := vidOutput
+	if outPath == "" {
+		outPath = video.DefaultOutputPath(vidInput)
+	}
+
+	return upscaleVideoFile(vidInput, outPath, videoOptions{
+		Codec:       vidCodec,
+		CRF:         vidCRF,
+		TileSize:    vidTileSize,
+		TileOverlap: vidTileOverlap,
+		NoAudio:     vidNoAudio,
+	})
+}
+
+// upscaleVideoFile runs the Real-ESRGAN 4× upscaler over a single video file.
+func upscaleVideoFile(inputPath, outPath string, opts videoOptions) error {
 	// Resolve model
 	modelPath := GetModelPath()
 	var err error
@@ -59,27 +86,21 @@ func runVideo(cmd *cobra.Command, args []string) error {
 	Logf("Using model: %s", modelPath)
 
 	// Probe input video
-	Logf("Probing %s...", vidInput)
-	info, err := video.Probe(vidInput)
+	Logf("Probing %s...", inputPath)
+	info, err := video.Probe(inputPath)
 	if err != nil {
 		return fmt.Errorf("failed to probe video: %w", err)
 	}
 	Logf("Video: %dx%d, %.2f fps, %d frames, codec=%s",
 		info.Width, info.Height, info.FPS, info.FrameCount, info.CodecName)
 
-	// Resolve output path
-	outPath := vidOutput
-	if outPath == "" {
-		outPath = video.DefaultOutputPath(vidInput)
-	}
-
 	// Initialize upscaler
 	u, err := upscaler.New(upscaler.Config{
 		ModelPath:   modelPath,
 		Device:      GetDevice(),
 		LibPath:     GetLibPath(),
-		TileSize:    vidTileSize,
-		TileOverlap: vidTileOverlap,
+		TileSize:    opts.TileSize,
+		TileOverlap: opts.TileOverlap,
 		Logger:      log,
 	})
 	if err != nil {
@@ -89,12 +110,12 @@ func runVideo(cmd *cobra.Command, args []string) error {
 
 	// Process video
 	err = video.Process(video.ProcessConfig{
-		InputPath:  vidInput,
+		InputPath:  inputPath,
 		OutputPath: outPath,
 		Info:       info,
-		Codec:      vidCodec,
-		CRF:        vidCRF,
-		NoAudio:    vidNoAudio,
+		Codec:      opts.Codec,
+		CRF:        opts.CRF,
+		NoAudio:    opts.NoAudio,
 		Upscaler:   u,
 		Logger:     log,
 	})

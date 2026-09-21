@@ -27,12 +27,13 @@ type jobEvent struct {
 
 type job struct {
 	id       string
-	fileType string // "image" or "video"
+	fileType string // "image", "video", or "download"
 	status   jobStatus
 	progress int
 	detail   string
 	errMsg   string
 
+	jobDir     string
 	inputPath  string
 	outputPath string
 	outputName string
@@ -45,12 +46,27 @@ type job struct {
 	crf     int
 	noAudio bool
 
+	// download options
+	sourceURL string
+	quality   string
+	audioOnly bool
+	upscale   bool
+	cookies   string
+
 	// common options
 	tileSize    int
 	tileOverlap int
 
 	mu          sync.Mutex
 	subscribers []chan jobEvent
+}
+
+// setOutput records the final output file for a job.
+func (j *job) setOutput(path, name string) {
+	j.mu.Lock()
+	j.outputPath = path
+	j.outputName = name
+	j.mu.Unlock()
 }
 
 func (j *job) broadcast(evt jobEvent) {
