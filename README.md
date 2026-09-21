@@ -26,8 +26,8 @@ GPU via ROCm/MIGraphX.
 
 ### Option A — pull a published image
 
-Two images are published, both tagged `latest`, `vX.Y.Z`/`vX.Y` (on git tags),
-and short-SHA:
+Two images are published, both tagged `latest`, `X.Y.Z`/`X.Y` (on `vX.Y.Z` git
+tags), and short-SHA:
 
 | Image | Size | Use |
 |-------|------|-----|
