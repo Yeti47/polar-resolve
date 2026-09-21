@@ -65,6 +65,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .check-group{display:flex;align-items:center;gap:.5rem}
 .check-group input[type=checkbox]{width:auto;accent-color:var(--primary)}
 .check-group label{margin-bottom:0;font-size:.88rem;color:var(--text)}
+.form-group input:disabled,.form-group select:disabled,.check-group input:disabled{opacity:.55;cursor:not-allowed}
+.check-group.disabled label{opacity:.55;cursor:not-allowed}
 
 /* Button */
 .btn{display:inline-flex;align-items:center;justify-content:center;width:100%;padding:.7rem 1.25rem;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;transition:background .15s;text-decoration:none}
@@ -172,9 +174,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <input type="checkbox" id="audioOnly">
         <label for="audioOnly">Audio only (MP3)</label>
       </div>
-      <div class="check-group" style="margin-top:.5rem">
+      <div class="check-group" id="upscaleGroup" style="margin-top:.5rem">
         <input type="checkbox" id="upscale">
-        <label for="upscale">Also 4&times; upscale after downloading</label>
+        <label for="upscale" id="upscaleLabel">Also 4&times; upscale after downloading</label>
       </div>
       <div class="form-group" style="margin-top:.85rem">
         <label for="cookiesFromBrowser">Cookies from browser (optional, for private/age-restricted videos)</label>
@@ -234,7 +236,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
             <input type="number" id="crf" value="18" min="0" max="51">
           </div>
         </div>
-        <div class="check-group">
+        <div class="check-group" id="noAudioGroup">
           <input type="checkbox" id="noAudio">
           <label for="noAudio">Remove audio track</label>
         </div>
@@ -243,7 +245,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   </div>
 
   <!-- Submit -->
-  <button class="btn" id="submitBtn" disabled>Upscale</button>
+  <div id="submitWrap">
+    <button class="btn" id="submitBtn" disabled>Upscale</button>
+  </div>
 
   <!-- Progress -->
   <div class="card progress-section" id="progressSection">
@@ -368,6 +372,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   const platformText  = $('platformText');
   const audioOnly   = $('audioOnly');
   const upscaleChk  = $('upscale');
+  const upscaleGroup = $('upscaleGroup');
+  const upscaleLabel = $('upscaleLabel');
+  const noAudioGroup = $('noAudioGroup');
+  const submitWrap   = $('submitWrap');
+
+  // Server capability flags (populated from /api/config).
+  let videoUpscalingEnabled = true;
+  const VIDEO_UPSCALING_DISABLED_MSG = 'Video upscaling is disabled in this environment.';
 
   const IMG_EXT = ['.png','.jpg','.jpeg','.webp'];
   const VID_EXT = ['.mp4','.mkv','.avi','.mov','.webm'];
@@ -395,10 +407,39 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     if(mode==='url'){
       submitBtn.disabled = !detectPlatform(videoUrl.value.trim());
       submitBtn.textContent = upscaleChk.checked && !audioOnly.checked ? 'Download & Upscale' : 'Download';
+      submitWrap.title = '';
     } else {
-      submitBtn.disabled = !selectedFile;
+      const blocked = !videoUpscalingEnabled && fileType==='video';
+      submitBtn.disabled = !selectedFile || blocked;
       submitBtn.textContent = 'Upscale';
+      submitWrap.title = (selectedFile && blocked) ? VIDEO_UPSCALING_DISABLED_MSG : '';
     }
+  }
+
+  /* Disable video upscaling controls when the server has it turned off. */
+  function applyVideoUpscalingDisabled(){
+    if(videoUpscalingEnabled) return;
+    upscaleChk.checked = false;
+    upscaleChk.disabled = true;
+    upscaleGroup.classList.add('disabled');
+    upscaleGroup.title = VIDEO_UPSCALING_DISABLED_MSG;
+    upscaleLabel.title = VIDEO_UPSCALING_DISABLED_MSG;
+    videoOpts.title = VIDEO_UPSCALING_DISABLED_MSG;
+    noAudioGroup.classList.add('disabled');
+    noAudioGroup.title = VIDEO_UPSCALING_DISABLED_MSG;
+    ['codec','crf','noAudio'].forEach(id=>{
+      const el = $(id);
+      if(!el) return;
+      el.disabled = true;
+      el.title = VIDEO_UPSCALING_DISABLED_MSG;
+      // Disabled controls may not emit hover events, so put the tooltip on
+      // the surrounding group and label too.
+      const group = el.closest('.form-group') || el.closest('.check-group');
+      if(group) group.title = VIDEO_UPSCALING_DISABLED_MSG;
+      const label = document.querySelector('label[for="'+id+'"]');
+      if(label) label.title = VIDEO_UPSCALING_DISABLED_MSG;
+    });
+    updateSubmitState();
   }
 
   function setMode(m){
@@ -475,8 +516,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   });
 
   audioOnly.addEventListener('change', ()=>{
-    if(audioOnly.checked){ upscaleChk.checked = false; upscaleChk.disabled = true; }
-    else { upscaleChk.disabled = false; }
+    if(audioOnly.checked){
+      upscaleChk.checked = false;
+      upscaleChk.disabled = true;
+      upscaleGroup.classList.add('disabled');
+    } else {
+      upscaleChk.disabled = !videoUpscalingEnabled;
+      upscaleGroup.classList.toggle('disabled', !videoUpscalingEnabled);
+    }
     updateSubmitState();
   });
   upscaleChk.addEventListener('change', updateSubmitState);
@@ -584,12 +631,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     if(mode==='url'){
       audioOnly.checked = false;
       upscaleChk.checked = false;
-      upscaleChk.disabled = false;
+      upscaleChk.disabled = !videoUpscalingEnabled;
+      upscaleGroup.classList.toggle('disabled', !videoUpscalingEnabled);
     }
     updateSubmitState();
   }
   $('newJobBtn').addEventListener('click', resetUI);
   $('retryBtn').addEventListener('click', resetUI);
+
+  /* Fetch server capabilities so unsupported controls can be disabled. */
+  fetch('/api/config').then(r=> r.ok ? r.json() : null).then(cfg=>{
+    if(cfg && cfg.videoUpscalingEnabled===false){
+      videoUpscalingEnabled = false;
+      applyVideoUpscalingDisabled();
+    }
+  }).catch(()=>{});
 })();
 </script>
 </body>

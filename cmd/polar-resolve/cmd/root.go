@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/Yeti47/polar-resolve/internal/logging"
 	"github.com/spf13/cobra"
@@ -40,6 +41,9 @@ func init() {
 
 func initConfig() {
 	viper.SetEnvPrefix("POLAR_RESOLVE")
+	// Map dashed flag names to underscore env vars, e.g.
+	// --disable-video-upscaling -> POLAR_RESOLVE_DISABLE_VIDEO_UPSCALING.
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	viper.AutomaticEnv()
 }
 

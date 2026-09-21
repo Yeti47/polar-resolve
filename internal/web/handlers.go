@@ -14,8 +14,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// videoUpscalingDisabledError is returned to clients that request video
+// upscaling while it has been disabled via ServerConfig.DisableVideoUpscaling.
+const videoUpscalingDisabledError = "video upscaling is disabled in this environment"
+
 func (s *Server) handleIndex(c *gin.Context) {
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(indexHTML))
+}
+
+// handleConfig exposes server capabilities so the UI can disable controls for
+// features that are turned off in this environment.
+func (s *Server) handleConfig(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"videoUpscalingEnabled": !s.config.DisableVideoUpscaling,
+	})
 }
 
 func (s *Server) handleStatus(c *gin.Context) {
@@ -97,6 +109,11 @@ func (s *Server) handleCreateJob(c *gin.Context) {
 		return
 	}
 
+	if fileType == "video" && s.config.DisableVideoUpscaling {
+		c.JSON(http.StatusForbidden, gin.H{"error": videoUpscalingDisabledError})
+		return
+	}
+
 	j := newJob()
 	jobDir := filepath.Join(s.tmpDir, j.id)
 	if err := os.MkdirAll(jobDir, 0o755); err != nil {
@@ -154,6 +171,15 @@ func (s *Server) handleCreateDownloadJob(c *gin.Context, rawURL string) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid URL (must be http or https)"})
+		return
+	}
+
+	// Reject download+upscale requests while video upscaling is disabled.
+	// Audio-only downloads never upscale, so they remain allowed.
+	if s.config.DisableVideoUpscaling &&
+		c.PostForm("upscale") == "true" &&
+		c.PostForm("audioOnly") != "true" {
+		c.JSON(http.StatusForbidden, gin.H{"error": videoUpscalingDisabledError})
 		return
 	}
 

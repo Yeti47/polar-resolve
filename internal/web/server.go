@@ -17,13 +17,14 @@ var indexHTML string
 
 // ServerConfig holds the configuration for the web server.
 type ServerConfig struct {
-	Bind      string
-	Port      int
-	ModelPath string
-	Device    string
-	LibPath   string
-	Verbose   bool
-	Logger    logging.Logger
+	Bind                  string
+	Port                  int
+	ModelPath             string
+	Device                string
+	LibPath               string
+	Verbose               bool
+	DisableVideoUpscaling bool
+	Logger                logging.Logger
 }
 
 // Server is the web UI server.
@@ -115,6 +116,7 @@ func (s *Server) Run() error {
 	r.GET("/", s.handleIndex)
 	api := r.Group("/api")
 	{
+		api.GET("/config", s.handleConfig)
 		api.GET("/status", s.handleStatus)
 		api.POST("/jobs", s.handleCreateJob)
 		api.GET("/jobs/:id/events", s.handleJobEvents)

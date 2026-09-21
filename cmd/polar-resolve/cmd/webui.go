@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	webuiPort int
-	webuiBind string
+	webuiPort                  int
+	webuiBind                  string
+	webuiDisableVideoUpscaling bool
 )
 
 var webuiCmd = &cobra.Command{
@@ -24,9 +25,12 @@ for upscaling images and videos using Real-ESRGAN.`,
 func init() {
 	webuiCmd.Flags().IntVar(&webuiPort, "port", 8080, "Port to listen on")
 	webuiCmd.Flags().StringVar(&webuiBind, "bind", "0.0.0.0", "Address to bind to")
+	webuiCmd.Flags().BoolVar(&webuiDisableVideoUpscaling, "disable-video-upscaling", false,
+		"Reject video upscaling requests and disable video upscaling controls in the web UI")
 
 	_ = viper.BindPFlag("port", webuiCmd.Flags().Lookup("port"))
 	_ = viper.BindPFlag("bind", webuiCmd.Flags().Lookup("bind"))
+	_ = viper.BindPFlag("disable-video-upscaling", webuiCmd.Flags().Lookup("disable-video-upscaling"))
 
 	rootCmd.AddCommand(webuiCmd)
 }
@@ -35,13 +39,14 @@ func runWebUI(cmd *cobra.Command, args []string) error {
 	// Model download (if needed) happens in the background inside the server
 	// so the web UI is available immediately and can show download progress.
 	srv, err := web.NewServer(web.ServerConfig{
-		Bind:      viper.GetString("bind"),
-		Port:      viper.GetInt("port"),
-		ModelPath: GetModelPath(),
-		Device:    GetDevice(),
-		LibPath:   GetLibPath(),
-		Verbose:   IsVerbose(),
-		Logger:    NewLogger(),
+		Bind:                  viper.GetString("bind"),
+		Port:                  viper.GetInt("port"),
+		ModelPath:             GetModelPath(),
+		Device:                GetDevice(),
+		LibPath:               GetLibPath(),
+		Verbose:               IsVerbose(),
+		DisableVideoUpscaling: viper.GetBool("disable-video-upscaling"),
+		Logger:                NewLogger(),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to start web server: %w", err)

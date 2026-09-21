@@ -50,6 +50,28 @@ func multipartBody(t *testing.T, fields map[string]string) (*bytes.Buffer, strin
 	return body, w.FormDataContentType()
 }
 
+func multipartFileBody(t *testing.T, field, filename string, content []byte, fields map[string]string) (*bytes.Buffer, string) {
+	t.Helper()
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	for k, v := range fields {
+		if err := w.WriteField(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fw, err := w.CreateFormFile(field, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return body, w.FormDataContentType()
+}
+
 func TestCreateDownloadJob(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newTestServer(t, true)
@@ -134,6 +156,143 @@ func TestCreateJobRequiresReady(t *testing.T) {
 	s.handleCreateJob(c)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestCreateJobRejectsVideoWhenUpscalingDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := newTestServer(t, true)
+	s.config.DisableVideoUpscaling = true
+
+	body, contentType := multipartFileBody(t, "file", "clip.mp4", []byte("not really a video"), nil)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/jobs", body)
+	c.Request.Header.Set("Content-Type", contentType)
+
+	s.handleCreateJob(c)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["error"] != videoUpscalingDisabledError {
+		t.Errorf("error = %q, want %q", resp["error"], videoUpscalingDisabledError)
+	}
+	if len(s.queue) != 0 {
+		t.Errorf("queue length = %d, want 0", len(s.queue))
+	}
+}
+
+func TestCreateJobAllowsImageWhenUpscalingDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := newTestServer(t, true)
+	s.config.DisableVideoUpscaling = true
+
+	body, contentType := multipartFileBody(t, "file", "photo.png", []byte("png bytes"), nil)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/jobs", body)
+	c.Request.Header.Set("Content-Type", contentType)
+
+	s.handleCreateJob(c)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if len(s.queue) != 1 {
+		t.Errorf("queue length = %d, want 1", len(s.queue))
+	}
+}
+
+func TestCreateDownloadJobRejectsUpscaleWhenDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := newTestServer(t, true)
+	s.config.DisableVideoUpscaling = true
+
+	body, contentType := multipartBody(t, map[string]string{
+		"url":     "https://www.youtube.com/watch?v=abc123",
+		"upscale": "true",
+	})
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/jobs", body)
+	c.Request.Header.Set("Content-Type", contentType)
+
+	s.handleCreateJob(c)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if len(s.queue) != 0 {
+		t.Errorf("queue length = %d, want 0", len(s.queue))
+	}
+}
+
+func TestCreateDownloadJobAllowsPlainDownloadWhenDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := newTestServer(t, true)
+	s.config.DisableVideoUpscaling = true
+
+	// A plain download and an audio-only download (which never upscales)
+	// should still be accepted.
+	for name, fields := range map[string]map[string]string{
+		"video":      {"url": "https://www.youtube.com/watch?v=abc123"},
+		"audio-only": {"url": "https://www.youtube.com/watch?v=abc123", "audioOnly": "true", "upscale": "true"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body, contentType := multipartBody(t, fields)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/api/jobs", body)
+			c.Request.Header.Set("Content-Type", contentType)
+
+			s.handleCreateJob(c)
+
+			if rec.Code != http.StatusAccepted {
+				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandleConfig(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, tc := range []struct {
+		name        string
+		disable     bool
+		wantEnabled bool
+	}{
+		{"enabled", false, true},
+		{"disabled", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestServer(t, true)
+			s.config.DisableVideoUpscaling = tc.disable
+
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/config", nil)
+
+			s.handleConfig(c)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			var resp struct {
+				VideoUpscalingEnabled bool `json:"videoUpscalingEnabled"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatal(err)
+			}
+			if resp.VideoUpscalingEnabled != tc.wantEnabled {
+				t.Errorf("videoUpscalingEnabled = %v, want %v", resp.VideoUpscalingEnabled, tc.wantEnabled)
+			}
+		})
 	}
 }
 

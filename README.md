@@ -137,6 +137,13 @@ The web UI has two modes: **Upload file** (image/video upscaling) and
 **From URL** (YouTube/Twitter/X downloads, optionally upscaled). A live status
 overlay shows model download progress on first start.
 
+Video upscaling can be disabled server-side by passing
+`--disable-video-upscaling` to `web-ui` (or setting
+`POLAR_RESOLVE_DISABLE_VIDEO_UPSCALING=true`). The server then rejects video
+upscaling requests — both direct video uploads and download+upscale — while
+image upscaling keeps working, and the UI renders the video upscaling controls
+as disabled.
+
 ### Options
 
 | Flag | Default | Description |
@@ -157,6 +164,7 @@ overlay shows model download progress on first start.
 | `POLAR_RESOLVE_DEVICE` | Override `--device` |
 | `POLAR_RESOLVE_MODEL_DIR` | Model cache directory (default: `/models` in container) |
 | `POLAR_RESOLVE_YTDLP` | Path to a specific `yt-dlp` binary (default: found on `PATH`) |
+| `POLAR_RESOLVE_DISABLE_VIDEO_UPSCALING` | Reject video upscaling requests in the web UI (image upscaling still works) |
 | `HSA_OVERRIDE_GFX_VERSION` | ROCm GFX version override (set to `10.3.0` for RDNA2) |
 
 ## Building from source (without Docker)
