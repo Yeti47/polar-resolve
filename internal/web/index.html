@@ -4,29 +4,78 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>polar-resolve</title>
+<script>
+// Apply the saved (or system-preferred) theme before first paint to avoid a flash.
+(function(){
+  try{
+    var saved = localStorage.getItem('polar-resolve-theme');
+    var theme = (saved==='dark'||saved==='light') ? saved
+      : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', theme);
+  }catch(e){}
+})();
+</script>
 <style>
 :root {
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
   --bg: #f1f5f9;
   --surface: #ffffff;
+  --surface-muted: #f8fafc;
+  --track: #e2e8f0;
+  --primary-soft: #eff6ff;
   --text: #1e293b;
   --text-sec: #64748b;
   --border: #e2e8f0;
   --success: #16a34a;
   --error: #dc2626;
+  --error-soft: #fef2f2;
+  --muted: #64748b;
+  --header-bg: linear-gradient(135deg,#0f2746 0%,#1e56a0 100%);
+  --progress-grad: linear-gradient(90deg,#2563eb,#38bdf8);
+  --shadow: 0 1px 3px rgba(0,0,0,.08);
   --radius: 12px;
+  color-scheme: light;
 }
+
+/* Dark theme palette: black, blue and silver. */
+[data-theme="dark"] {
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --bg: #05070c;
+  --surface: #0e131c;
+  --surface-muted: #0b1017;
+  --track: #1a2332;
+  --primary-soft: #101c33;
+  --text: #e2e8f0;
+  --text-sec: #94a3b8;
+  --border: #243244;
+  --success: #22c55e;
+  --error: #f87171;
+  --error-soft: #2a1215;
+  --muted: #475569;
+  --header-bg: linear-gradient(135deg,#000000 0%,#123a8a 100%);
+  --progress-grad: linear-gradient(90deg,#1d4ed8,#60a5fa);
+  --shadow: 0 1px 3px rgba(0,0,0,.55);
+  color-scheme: dark;
+}
+
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-.header{background:linear-gradient(135deg,#0f2746 0%,#1e56a0 100%);color:#fff;padding:1.5rem 1rem;text-align:center}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
+.header{position:relative;background:var(--header-bg);color:#fff;padding:1.5rem 1rem;text-align:center}
+.theme-toggle{position:absolute;top:.85rem;right:1rem;width:2.25rem;height:2.25rem;display:inline-flex;align-items:center;justify-content:center;background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.28);border-radius:8px;font-size:1rem;line-height:1;cursor:pointer;transition:background .15s,border-color .15s}
+.theme-toggle:hover{background:rgba(255,255,255,.24)}
+.theme-toggle:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.theme-toggle .icon-sun{display:none}
+[data-theme="dark"] .theme-toggle .icon-moon{display:none}
+[data-theme="dark"] .theme-toggle .icon-sun{display:inline}
 .header h1{font-size:1.5rem;font-weight:700;letter-spacing:-.02em}
 .header p{opacity:.8;font-size:.87rem;margin-top:.25rem}
 .container{max-width:580px;margin:1.5rem auto;padding:0 1rem}
-.card{background:var(--surface);border-radius:var(--radius);box-shadow:0 1px 3px rgba(0,0,0,.08);padding:1.25rem;margin-bottom:1.25rem}
+.card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:1.25rem;margin-bottom:1.25rem;transition:background .2s}
 
 /* Mode tabs */
-.tabs{display:flex;background:#e2e8f0;border-radius:10px;padding:4px;margin-bottom:1.1rem;gap:4px}
+.tabs{display:flex;background:var(--track);border-radius:10px;padding:4px;margin-bottom:1.1rem;gap:4px}
 .tab{flex:1;padding:.5rem;border:none;border-radius:8px;background:transparent;font-size:.87rem;font-weight:600;color:var(--text-sec);cursor:pointer;transition:background .15s,color .15s}
 .tab.active{background:var(--surface);color:var(--primary);box-shadow:0 1px 2px rgba(0,0,0,.08)}
 
@@ -36,16 +85,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .platform-badge{display:none;align-items:center;gap:.45rem;margin-top:.6rem;font-size:.8rem;color:var(--text-sec)}
 .platform-badge.visible{display:flex}
 .platform-badge .dot{width:8px;height:8px;border-radius:50%;background:var(--primary);flex:none}
-.platform-badge .badge{display:inline-block;padding:.1rem .5rem;border-radius:999px;background:#eff6ff;color:var(--primary);font-weight:600;font-size:.74rem}
+.platform-badge .badge{display:inline-block;padding:.1rem .5rem;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-weight:600;font-size:.74rem}
 
 /* Upload zone */
 .upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:2.5rem 1.5rem;text-align:center;cursor:pointer;transition:border-color .2s,background .2s}
-.upload-zone:hover,.upload-zone.dragover{border-color:var(--primary);background:#eff6ff}
+.upload-zone:hover,.upload-zone.dragover{border-color:var(--primary);background:var(--primary-soft)}
 .upload-zone .icon{font-size:2.5rem;margin-bottom:.75rem}
 .upload-zone p{color:var(--text-sec);font-size:.9rem}
 .upload-zone .browse{color:var(--primary);text-decoration:underline;cursor:pointer}
 .upload-zone .hint{font-size:.78rem;margin-top:.5rem;opacity:.7}
-.file-info{display:none;align-items:center;gap:.75rem;padding:.65rem 1rem;background:#f8fafc;border:1px solid var(--border);border-radius:8px;margin-top:1rem}
+.file-info{display:none;align-items:center;gap:.75rem;padding:.65rem 1rem;background:var(--surface-muted);border:1px solid var(--border);border-radius:8px;margin-top:1rem}
 .file-info.visible{display:flex}
 .file-info .name{flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.9rem}
 .file-info .size{color:var(--text-sec);font-size:.8rem;white-space:nowrap}
@@ -73,14 +122,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .btn:hover{background:var(--primary-hover)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 .btn.success{background:var(--success)}
-.btn.muted{background:#64748b;margin-top:.65rem}
+.btn.muted{background:var(--muted);margin-top:.65rem}
 
 /* Progress */
 .progress-section{display:none}
 .progress-section.active{display:block}
 .progress-section h3{font-size:.95rem;font-weight:600}
-.bar-wrap{background:#e2e8f0;border-radius:999px;height:8px;overflow:hidden;margin:.85rem 0}
-.bar-fill{height:100%;background:linear-gradient(90deg,#2563eb,#38bdf8);border-radius:999px;transition:width .3s;width:0%}
+.bar-wrap{background:var(--track);border-radius:999px;height:8px;overflow:hidden;margin:.85rem 0}
+.bar-fill{height:100%;background:var(--progress-grad);border-radius:999px;transition:width .3s;width:0%}
 .progress-info{display:flex;justify-content:space-between;font-size:.82rem;color:var(--text-sec)}
 
 /* Result */
@@ -92,7 +141,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 /* Error */
 .error-section{display:none}
 .error-section.active{display:block}
-.error-msg{background:#fef2f2;color:var(--error);padding:.85rem 1rem;border-radius:8px;font-size:.88rem;word-break:break-word}
+.error-msg{background:var(--error-soft);color:var(--error);padding:.85rem 1rem;border-radius:8px;font-size:.88rem;word-break:break-word}
 
 @media(max-width:480px){
   .form-row{grid-template-columns:1fr}
@@ -128,6 +177,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 </div>
 
 <div class="header">
+  <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">
+    <span class="icon-moon" aria-hidden="true">&#127769;</span>
+    <span class="icon-sun" aria-hidden="true">&#9728;&#65039;</span>
+  </button>
   <h1>&#x1F43B;&#x200D;&#x2744;&#xFE0F; polar-resolve</h1>
   <p>Upscale images &amp; videos 4&times; &bull; Download from YouTube &amp; Twitter/X</p>
 </div>
@@ -277,6 +330,48 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 <script>
 (function(){
   const $ = id => document.getElementById(id);
+
+  /* ---- Theme (dark mode) toggle ---- */
+  (function themeToggle(){
+    const root = document.documentElement;
+    const btn = $('themeToggle');
+    const KEY = 'polar-resolve-theme';
+    const media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+    function stored(){
+      try{
+        const v = localStorage.getItem(KEY);
+        return (v==='dark'||v==='light') ? v : null;
+      }catch(e){ return null; }
+    }
+
+    function sync(){
+      const label = root.getAttribute('data-theme')==='dark'
+        ? 'Switch to light mode' : 'Switch to dark mode';
+      btn.setAttribute('aria-label', label);
+      btn.title = label;
+    }
+
+    btn.addEventListener('click', ()=>{
+      const next = root.getAttribute('data-theme')==='dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+      try{ localStorage.setItem(KEY, next); }catch(e){}
+      sync();
+    });
+
+    // Follow the OS preference while the user has made no explicit choice.
+    if(media){
+      const onChange = e => {
+        if(stored()) return;
+        root.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+        sync();
+      };
+      if(media.addEventListener) media.addEventListener('change', onChange);
+      else if(media.addListener) media.addListener(onChange);
+    }
+
+    sync();
+  })();
 
   /* ---- Server init status (model download) ---- */
   (function initCheck(){
