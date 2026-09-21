@@ -3,6 +3,7 @@
 
 # Docker files
 Dockerfile
+Dockerfile.cpu
 docker-compose.yml
 .dockerignore
 

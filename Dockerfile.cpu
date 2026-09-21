@@ -1,0 +1,92 @@
+# =============================================================================
+# polar-resolve Dockerfile (CPU-only)
+#
+# A small CPU-only alternative to the ROCm image, which is ~11 GB because of
+# the ROCm runtime. This variant uses the stock ONNX Runtime CPU wheel and skips
+# ROCm/MIGraphX entirely, so it runs anywhere.
+#
+# Usage: pass --device cpu (POLAR_RESOLVE_DEVICE=cpu) or leave the default
+# "auto" — with no MIGraphX provider available the upscaler falls back to CPU.
+#
+# Multi-stage build:
+#   Stage 1 (builder): Compiles the Go binary and extracts ORT libraries
+#   Stage 2 (runtime): Minimal Debian image with ffmpeg, yt-dlp, and the binary
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Stage 1: Build
+# ---------------------------------------------------------------------------
+FROM golang:1.25-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        wget unzip ca-certificates && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Extract ORT shared libraries from the stock ONNX Runtime CPU wheel.
+# Pinned to 1.23.1 to match the ROCm image (the Go bindings v1.22.0 request
+# ORT_API_VERSION 22, which ORT 1.23.1 supports).
+ARG ORT_VERSION=1.23.1
+RUN mkdir -p /opt/onnxruntime/lib && \
+    cd /tmp && \
+    wget -q "https://pypi.org/pypi/onnxruntime/${ORT_VERSION}/json" -O ort.json && \
+    ORT_WHEEL_URL=$(sed -n 's/.*"url":"\([^"]*onnxruntime-[^"]*cp310-cp310-manylinux_2_27_x86_64[^"]*\.whl\)".*/\1/p' ort.json | head -1) && \
+    [ -n "${ORT_WHEEL_URL}" ] || { echo "could not resolve ORT ${ORT_VERSION} CPU wheel URL"; exit 1; } && \
+    echo "Fetching ${ORT_WHEEL_URL}" && \
+    wget -q "${ORT_WHEEL_URL}" -O ort_cpu.whl && \
+    unzip -o ort_cpu.whl "onnxruntime/capi/libonnxruntime.so*" -d extracted && \
+    cp extracted/onnxruntime/capi/libonnxruntime.so* /opt/onnxruntime/lib/ && \
+    cd /opt/onnxruntime/lib && \
+    # Create the unversioned symlink the loader expects
+    if [ ! -f libonnxruntime.so ]; then \
+        for f in libonnxruntime.so.1.*; do \
+            [ -f "$f" ] && ln -sf "$f" libonnxruntime.so && break; \
+        done; \
+    fi && \
+    ls -la /opt/onnxruntime/lib/ && \
+    rm -rf /tmp/ort_cpu.whl /tmp/ort.json /tmp/extracted
+
+# Build the Go binary
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=1 go build -o /polar-resolve ./cmd/polar-resolve/
+
+# ---------------------------------------------------------------------------
+# Stage 2: Runtime
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim
+
+# Install ffmpeg, yt-dlp (via pip, since bookworm's package is often stale or
+# missing), and minimal runtime dependencies.
+# YTDLP_VERSION may be pinned (e.g. --build-arg YTDLP_VERSION=2026.08.19); by
+# default the latest release is installed.
+ARG YTDLP_VERSION=""
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        ca-certificates \
+        python3 \
+        python3-pip && \
+    pip3 install --no-cache-dir --break-system-packages "yt-dlp${YTDLP_VERSION:+==${YTDLP_VERSION}}" && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Copy ORT libraries
+COPY --from=builder /opt/onnxruntime/lib/ /opt/onnxruntime/lib/
+
+# Copy the built binary
+COPY --from=builder /polar-resolve /usr/local/bin/polar-resolve
+
+ENV LD_LIBRARY_PATH="/opt/onnxruntime/lib"
+
+# CPU is the only option in this image
+ENV POLAR_RESOLVE_DEVICE="cpu"
+
+# Default model cache directory inside the container
+ENV POLAR_RESOLVE_MODEL_DIR="/models"
+RUN mkdir -p /models /workspace
+
+WORKDIR /workspace
+
+ENTRYPOINT ["polar-resolve"]
+CMD ["--help"]

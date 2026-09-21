@@ -12,22 +12,44 @@ GPU via ROCm/MIGraphX.
 - **Video upscaling** — frame-by-frame processing via ffmpeg with audio passthrough
 - **Video downloads** — YouTube, Twitter/X, and hundreds of yt-dlp sites, with optional auto-upscaling
 - **Web UI** — browser interface for uploads *and* URL downloads with live progress
-- **GPU acceleration** — AMD ROCm (MIGraphX execution provider)
+- **GPU acceleration** — AMD ROCm (MIGraphX execution provider), or CPU-only via the slim `-cpu` image
 - **Auto model download** — fetches Real-ESRGAN-General-x4v3 from Qualcomm AI Hub on first run
 - **Tiled inference** — processes large images in overlapping tiles with blended seams
 
 ## Prerequisites
 
-- Docker with [Compose V2](https://docs.docker.com/compose/) — *or* the published image (see below)
-- AMD GPU with ROCm support (for GPU mode) — tested with RX 6800 (gfx1030)
-- Downloads require `yt-dlp` and `ffmpeg` (both included in the Docker image)
+- Docker with [Compose V2](https://docs.docker.com/compose/) — *or* a published image (see below)
+- AMD GPU with ROCm support for GPU mode — tested with RX 6800 (gfx1030); otherwise use the CPU image
+- Downloads require `yt-dlp` and `ffmpeg` (both included in the Docker images)
 
 ## Setup
 
-### Option A — pull the published image
+### Option A — pull a published image
+
+Two images are published, both tagged `latest`, `vX.Y.Z`/`vX.Y` (on git tags),
+and short-SHA:
+
+| Image | Size | Use |
+|-------|------|-----|
+| `ghcr.io/yeti47/polar-resolve` | ~11 GB | AMD GPU (ROCm/MIGraphX) |
+| `ghcr.io/yeti47/polar-resolve-cpu` | ~670 MB | CPU-only, runs anywhere |
+
+The GPU image is large because it bundles the ROCm runtime. If you don't have an
+AMD GPU, use the CPU image:
 
 ```bash
 mkdir -p ~/polar-resolve/input ~/polar-resolve/output
+
+docker run --rm -it \
+  -v polar-resolve-models:/models \
+  -v ~/polar-resolve/input:/workspace/input \
+  -v ~/polar-resolve/output:/workspace/output \
+  ghcr.io/yeti47/polar-resolve-cpu:latest --help
+```
+
+For AMD GPU acceleration, add the device passthrough flags:
+
+```bash
 docker run --rm -it \
   --device /dev/kfd --device /dev/dri \
   --group-add video --group-add render \
@@ -39,9 +61,6 @@ docker run --rm -it \
   -v ~/polar-resolve/output:/workspace/output \
   ghcr.io/yeti47/polar-resolve:latest --help
 ```
-
-Images are published to GHCR as `latest`, `vX.Y.Z`/`vX.Y` (on git tags), and
-short-SHA tags. Drop the device/GPU flags and pass `--device cpu` to run on CPU.
 
 ### Option B — build from source
 
@@ -154,10 +173,20 @@ Set `LD_LIBRARY_PATH` to include your ONNX Runtime library directory.
 ## Container images
 
 The [publish workflow](.github/workflows/docker-publish.yml) builds and pushes
-the image on `v*` tag pushes and on manual dispatch, publishing to
-`ghcr.io/yeti47/polar-resolve` (`latest` plus the `vX.Y.Z`/`vX.Y` and
-short-SHA tags). Build locally with `docker build -t polar-resolve .`; pin the
-bundled yt-dlp with `--build-arg YTDLP_VERSION=2026.08.19`.
+both images on `v*` tag pushes and on manual dispatch:
+
+- `ghcr.io/yeti47/polar-resolve` — AMD GPU, from `Dockerfile`
+- `ghcr.io/yeti47/polar-resolve-cpu` — CPU-only, from `Dockerfile.cpu`
+
+Build either locally:
+
+```bash
+docker build -t polar-resolve .                      # ROCm/MIGraphX
+docker build -f Dockerfile.cpu -t polar-resolve-cpu . # CPU-only
+```
+
+Pin the bundled yt-dlp with `--build-arg YTDLP_VERSION=2026.08.19`; pin the CPU
+image's ONNX Runtime with `--build-arg ORT_VERSION=1.23.1`.
 
 ## License
 
