@@ -30,8 +30,10 @@ ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 ENV GOPATH="/root/go"
 
 # Extract ORT shared libraries from the ROCm MIGraphX pip wheel
-# ORT 1.23.1 from AMD's ROCm 7.1.1 repo (API version 23 — compatible with Go bindings v1.22.0 requesting version 22)
-ARG ORT_WHEEL_URL="https://repo.radeon.com/rocm/manylinux/rocm-rel-7.1.1/onnxruntime_migraphx-1.23.1-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+# ORT 1.23.1 from AMD's ROCm 7.1 repo (API version 23 — compatible with Go bindings v1.22.0 requesting version 22).
+# Note: AMD emptied the rocm-rel-7.1.1 wheel index, so the 7.1 index is used
+# instead; the cp310 wheel there carries the same 1.23.1 build.
+ARG ORT_WHEEL_URL="https://repo.radeon.com/rocm/manylinux/rocm-rel-7.1/onnxruntime_migraphx-1.23.1-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
 RUN mkdir -p /opt/onnxruntime/lib && \
     cd /tmp && \
     wget -q "${ORT_WHEEL_URL}" -O ort_migraphx.whl && \
